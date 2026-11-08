@@ -40,9 +40,21 @@ object GpuDriver {
         ENV + ("VK_ICD_FILENAMES" to "$GUEST_DIR/share/vulkan/icd.d/${family.icd}") +
             family.env(fixes.filterTo(linkedSetOf()) { it.family == family })
 
+    /** Whether GPU acceleration starts on for [family]: not for an experimental one. */
+    fun onByDefault(family: GpuFamily?): Boolean = family?.experimental != true
+
+    // What family() found, once: neither the device nor the APK's assets change while the app runs.
+    @Volatile private var detected = false
+    @Volatile private var detectedFamily: GpuFamily? = null
+
     /** This phone's GPU, when this build carries its driver and the app can open the GPU. */
-    fun family(context: Context): GpuFamily? =
-        GpuFamily.entries.firstOrNull { File(it.device).canRead() && it.bundle.available(context) }
+    fun family(context: Context): GpuFamily? {
+        if (!detected) {
+            detectedFamily = GpuFamily.entries.firstOrNull { File(it.device).canRead() && it.bundle.available(context) }
+            detected = true
+        }
+        return detectedFamily
+    }
 
     /** Whether this build carries a driver for this phone's GPU, and the app can open it. */
     fun available(context: Context): Boolean = family(context) != null
@@ -74,6 +86,8 @@ enum class GpuFamily(
     /** Its Vulkan driver's ICD file, in the driver's share/vulkan/icd.d. */
     val icd: String,
     internal val bundle: OptBundle,
+    /** Off until the user turns it on, after a warning that it can restart some phones. */
+    val experimental: Boolean = false,
 ) {
     /** Adreno (Snapdragon): Turnip, on Android's KGSL interface. */
     ADRENO(
@@ -94,6 +108,7 @@ enum class GpuFamily(
         "/dev/mali0",
         "panfrost_icd.aarch64.json",
         OptBundle(GpuDriver.GUEST_DIR, "gpu/mesa-panvk.tgz", "gpu/VERSION-panvk", GpuDriver.TAG),
+        experimental = true,
     ) {
         override fun env(fixes: Set<GpuFix>) = emptyMap<String, String>()
     };
@@ -118,5 +133,10 @@ enum class GpuFix(val family: GpuFamily, val option: String, val default: Boolea
     DIRECT_RENDERING(GpuFamily.ADRENO, "sysmem", false),
 
     /** Flushes caches and waits after every draw, for flicker and half-drawn frames. Slow. */
-    SYNC_DRAWS(GpuFamily.ADRENO, "flushall,syncdraw", false),
+    SYNC_DRAWS(GpuFamily.ADRENO, "flushall,syncdraw", false);
+
+    companion object {
+        /** The fixes [family]'s driver has. */
+        fun of(family: GpuFamily): List<GpuFix> = entries.filter { it.family == family }
+    }
 }

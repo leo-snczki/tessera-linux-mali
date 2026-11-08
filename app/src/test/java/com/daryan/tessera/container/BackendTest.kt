@@ -175,6 +175,17 @@ class BackendTest {
         assertTrue("export GPU_DEVICE=/dev/mali0;" in chroot.buildLaunch(firefox, mali).argv[2])
     }
 
+    @Test fun `Mali is experimental and off until asked for, Adreno is on`() {
+        assertFalse(GpuDriver.onByDefault(GpuFamily.MALI))
+        assertTrue(GpuDriver.onByDefault(GpuFamily.ADRENO))
+        assertTrue(GpuDriver.onByDefault(null))
+    }
+
+    @Test fun `each family offers only its own graphics fixes`() {
+        assertEquals(emptyList<GpuFix>(), GpuFix.of(GpuFamily.MALI))
+        assertEquals(listOf(GpuFix.NO_COMPRESSION, GpuFix.DIRECT_RENDERING, GpuFix.SYNC_DRAWS), GpuFix.of(GpuFamily.ADRENO))
+    }
+
     @Test fun `sessions without the GPU get none of the driver's settings`() {
         val env = guestEnv(firefox, session)
         assertFalse("VK_ICD_FILENAMES" in env)

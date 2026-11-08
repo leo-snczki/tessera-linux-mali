@@ -81,6 +81,8 @@ fun SettingsScreen(
     /** Null when this phone or build can't use hardware graphics. */
     gpuEnabled: Boolean?,
     onGpuEnabled: (Boolean) -> Unit,
+    /** The phone's GPU driver is experimental (Mali). */
+    gpuExperimental: Boolean,
     appearance: Appearance,
     onAppearance: (Appearance) -> Unit,
     /** Imported Linux themes, and importing or removing one. */
@@ -146,8 +148,9 @@ fun SettingsScreen(
                 Row(
                     LauncherIcons.Monitor, "GPU acceleration",
                     when (gpuEnabled) {
-                        null -> "Needs an Adreno GPU (Snapdragon); apps draw in software here"
-                        true -> "Windowed apps draw with the phone's GPU (OpenGL and Vulkan, through Turnip and Zink). Applies to apps opened from now on"
+                        null -> "Needs an Adreno (Snapdragon) or Mali GPU; apps draw in software here"
+                        true -> "Windowed apps draw with the phone's GPU (OpenGL and Vulkan). Applies to apps opened from now on" +
+                            experimentalNote(true, gpuExperimental)
                         false -> "Off: apps draw in software"
                     },
                     action = gpuEnabled?.let { on -> { androidx.compose.material3.Switch(checked = on, onCheckedChange = onGpuEnabled) } },

@@ -119,6 +119,8 @@ fun LauncherApp(vm: LauncherViewModel = viewModel()) {
     val pinned by vm.tabStore.pinned.collectAsStateWithLifecycle()
     val permissionOverrides by vm.permissionOverrides.collectAsStateWithLifecycle()
     val gpuEnabled by vm.gpuEnabled.collectAsStateWithLifecycle()
+    val gpuExperimental = remember { vm.gpuExperimental() }
+    val gpuWarning by vm.gpuWarning.collectAsStateWithLifecycle()
     val appearance by vm.appearance.collectAsStateWithLifecycle()
     val diagnosticsEnabled by vm.diagnosticsEnabled.collectAsStateWithLifecycle()
     val gpuApps by vm.gpuApps.collectAsStateWithLifecycle()
@@ -627,6 +629,7 @@ fun LauncherApp(vm: LauncherViewModel = viewModel()) {
             onDisplaySettings = { context.startActivity(Intent().setClassName(context, "com.termux.x11.LoriePreferences")) },
             gpuEnabled = gpuEnabled.takeIf { vm.gpuAvailable() },
             onGpuEnabled = vm::setGpuEnabled,
+            gpuExperimental = gpuExperimental,
             appearance = appearance,
             onAppearance = vm::setAppearance,
             linuxThemes = linuxThemes,
@@ -690,6 +693,8 @@ fun LauncherApp(vm: LauncherViewModel = viewModel()) {
             onGpu = { vm.setGpuFor(app, it) },
             fixes = fixes,
             onFix = { fix, on -> vm.setGpuFix(app, fix, on) },
+            fixChoices = remember { vm.gpuFixChoices() },
+            gpuExperimental = gpuExperimental,
             onDismiss = { graphicsApp = null },
         )
     }
@@ -708,6 +713,22 @@ fun LauncherApp(vm: LauncherViewModel = viewModel()) {
 
     editingShortcut?.let { s ->
         ShortcutDialog(s, onDismiss = { editingShortcut = null }, onSave = { vm.saveShortcut(it); editingShortcut = null })
+    }
+
+    if (gpuWarning != null) {
+        AlertDialog(
+            onDismissRequest = vm::dismissGpuWarning,
+            title = { Text("GPU acceleration is experimental here") },
+            text = {
+                Text(
+                    "On Mali GPUs Tessera uses a community driver that talks to Android's own GPU driver from inside " +
+                        "Linux. Apps get OpenGL and Vulkan, but some may draw wrong, and on some phones it can make the " +
+                        "phone restart. You can turn it off again at any time, for every app or for one.",
+                )
+            },
+            confirmButton = { TextButton(onClick = vm::acceptGpuWarning) { Text("Turn on") } },
+            dismissButton = { TextButton(onClick = vm::dismissGpuWarning) { Text("Not now") } },
+        )
     }
 
     missingPrompt?.let { prompt ->
@@ -960,6 +981,7 @@ fun LauncherApp(vm: LauncherViewModel = viewModel()) {
             onResetPermissions = { vm.resetPermissions(app.id) },
             gpu = remember(app.id, gpuApps, gpuEnabled, mode) { vm.gpuFor(app) },
             onGpu = { vm.setGpuFor(app, it) },
+            gpuExperimental = gpuExperimental,
             extras = if (app.desktop) ({ DesktopSheetNotes(running = sessions.any { it.app.id == app.id && it.running }) }) else null,
         )
     } }

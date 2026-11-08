@@ -83,9 +83,11 @@ fun AppSheet(
     permissionsChanged: Boolean,
     onPermissions: (Permissions) -> List<String>,
     onResetPermissions: () -> Unit,
-    /** This app's GPU acceleration; null when it can't have any (no window, or no Adreno GPU). */
+    /** This app's GPU acceleration; null when it can't have any (no window, or no GPU driver). */
     gpu: Boolean?,
     onGpu: (Boolean) -> Unit,
+    /** The phone's GPU driver is experimental (Mali). */
+    gpuExperimental: Boolean = false,
     /** What only this kind of app has to say, under its launch button (a desktop's way of working). */
     extras: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
@@ -152,8 +154,8 @@ fun AppSheet(
                         Column(Modifier.weight(1f)) {
                             Text("GPU acceleration", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                if (gpu) "Draws with the phone's GPU"
-                                else "Draws in software",
+                                (if (gpu) "Draws with the phone's GPU" else "Draws in software") +
+                                    experimentalNote(gpu, gpuExperimental),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

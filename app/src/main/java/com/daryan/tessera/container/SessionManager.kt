@@ -127,8 +127,14 @@ class SessionManager(
         if (listener == null) screenListeners.remove(id) else screenListeners[id] = listener
     }
 
-    /** The user's GPU acceleration setting; on by default where it's available. */
-    fun gpuEnabled() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_GPU, true)
+    /** The user's GPU acceleration setting; on by default where it's available, unless experimental there. */
+    fun gpuEnabled() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getBoolean(KEY_GPU, GpuDriver.onByDefault(GpuDriver.family(context)))
+
+    /** Whether the user accepted the warning about this phone's experimental GPU driver. */
+    fun gpuWarningAccepted() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_GPU_WARNING, false)
+
+    fun acceptGpuWarning() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_GPU_WARNING, true).apply()
 
     fun setGpuEnabled(on: Boolean) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_GPU, on).apply()
 
@@ -144,7 +150,7 @@ class SessionManager(
     /** [appId]'s graphics fixes: the ones the user chose, else the defaults. */
     fun gpuFixesFor(appId: String): Set<GpuFix> {
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet(KEY_GPU_FIXES + appId, null)
-            ?: return GpuFix.entries.filter { it.default }.toSet()
+            ?: return GpuDriver.family(context)?.let(GpuFix::of).orEmpty().filter { it.default }.toSet()
         return GpuFix.entries.filter { it.name in saved }.toSet()
     }
 
@@ -170,7 +176,8 @@ class SessionManager(
         }
         // Hardware graphics for windowed apps, when it's on and the driver is in that system.
         val gpu = if (!app.gui || !gpuFor(app.id)) null else GpuDriver.family(context)?.takeIf {
-            when (backend) {
+            // An experimental driver only once its warning was accepted, whatever switch was left on.
+            (!it.experimental || gpuWarningAccepted()) && when (backend) {
                 is ProotBackend -> GpuDriver.installed(context, paths.prootRootfs)
                 is ChrootBackend -> GpuDriver.installedAsRoot(context)
                 // The container needs the GPU's device node too (hardware or GPU access on).
@@ -670,6 +677,7 @@ class SessionManager(
         const val KEY_GPU = "gpu_acceleration"
         const val KEY_GPU_APP = "gpu_acceleration_"
         const val KEY_GPU_FIXES = "gpu_fixes_"
+        const val KEY_GPU_WARNING = "gpu_experimental_warning_accepted"
         const val MAX_OUTPUT = 16 * 1024
         const val TRANSCRIPT_ROWS = 5000
     }

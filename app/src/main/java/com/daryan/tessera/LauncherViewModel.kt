@@ -484,12 +484,37 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     fun gpuFor(app: PermissionManifest): Boolean? =
         if (app.gui && gpuAvailable()) sessions.gpuFor(app.id) else null
 
-    fun setGpuFor(app: PermissionManifest, on: Boolean) {
+    fun setGpuFor(app: PermissionManifest, on: Boolean) = afterGpuWarning(on) {
         sessions.setGpuFor(app.id, on)
         _gpuApps.value++
     }
 
     fun gpuFixesFor(app: PermissionManifest): Set<GpuFix> = sessions.gpuFixesFor(app.id)
+
+    /** The graphics fixes this phone's GPU driver has. */
+    fun gpuFixChoices(): List<GpuFix> = GpuDriver.family(getApplication())?.let(GpuFix::of).orEmpty()
+
+    /** Whether this phone's GPU driver is experimental (Mali), so turning it on warns first. */
+    fun gpuExperimental(): Boolean = GpuDriver.family(getApplication())?.experimental == true
+
+    private val _gpuWarning = MutableStateFlow<(() -> Unit)?>(null)
+    /** Turning the GPU on, waiting for the user to accept the experimental driver's warning. */
+    val gpuWarning: StateFlow<(() -> Unit)?> = _gpuWarning
+
+    /** Runs [change], first asking about an experimental driver when it turns the GPU [on]. */
+    private fun afterGpuWarning(on: Boolean, change: () -> Unit) {
+        if (on && gpuExperimental() && !sessions.gpuWarningAccepted()) _gpuWarning.value = change else change()
+    }
+
+    fun acceptGpuWarning() {
+        sessions.acceptGpuWarning()
+        _gpuWarning.value?.invoke()
+        _gpuWarning.value = null
+    }
+
+    fun dismissGpuWarning() {
+        _gpuWarning.value = null
+    }
 
     fun setGpuFix(app: PermissionManifest, fix: GpuFix, on: Boolean) {
         val fixes = sessions.gpuFixesFor(app.id)
@@ -543,7 +568,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setThemed(app: PermissionManifest, themed: Boolean) = container.appearance.setThemed(app.id, themed)
 
-    fun setGpuEnabled(on: Boolean) {
+    fun setGpuEnabled(on: Boolean) = afterGpuWarning(on) {
         sessions.setGpuEnabled(on)
         _gpuEnabled.value = on
     }

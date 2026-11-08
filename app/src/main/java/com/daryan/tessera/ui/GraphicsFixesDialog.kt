@@ -20,6 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.daryan.tessera.container.GpuFix
 
+/** What GPU acceleration's description adds, while it's [on], on a phone whose driver is [experimental]. */
+internal fun experimentalNote(on: Boolean, experimental: Boolean) = if (on && experimental) ". Experimental on Mali GPUs" else ""
+
 private fun GpuFix.title() = when (this) {
     GpuFix.NO_COMPRESSION -> "Fix black blocks"
     GpuFix.DIRECT_RENDERING -> "Fix missing or wrong parts"
@@ -48,6 +51,10 @@ fun GraphicsFixesDialog(
     onGpu: (Boolean) -> Unit,
     fixes: Set<GpuFix>,
     onFix: (GpuFix, Boolean) -> Unit,
+    /** The fixes the phone's GPU driver has. */
+    fixChoices: List<GpuFix>,
+    /** The phone's GPU driver is experimental (Mali). */
+    gpuExperimental: Boolean,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -60,9 +67,13 @@ fun GraphicsFixesDialog(
                 }
                 if (themed != null && gpu != null) HorizontalDivider()
                 if (gpu != null) {
-                    FixLine("GPU acceleration", "Off draws in software: slower, but always right", gpu, enabled = true, onGpu)
-                    HorizontalDivider()
-                    GpuFix.entries.forEach { fix ->
+                    FixLine(
+                        "GPU acceleration",
+                        "Off draws in software: slower, but always right" + experimentalNote(gpu, gpuExperimental),
+                        gpu, enabled = true, onGpu,
+                    )
+                    if (fixChoices.isNotEmpty()) HorizontalDivider()
+                    fixChoices.forEach { fix ->
                         FixLine(fix.title(), fix.detail(), fix in fixes, enabled = gpu) { onFix(fix, it) }
                     }
                 }
