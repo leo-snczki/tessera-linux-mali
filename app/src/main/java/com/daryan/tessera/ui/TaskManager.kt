@@ -66,17 +66,21 @@ data class Load(val cpu: Float, val memory: Long, val count: Int) {
 
 /**
  * How busy the phone's GPU is, 0 to 1, sampled every second; null where it can't be read.
- * Adreno's driver reports busy and total time over its last window (gpubusy), and apps may
- * read that, but not what each process used: this is the whole phone's GPU, Android included.
+ * Adreno's driver reports busy and total time over its last window (gpubusy), MediaTek's GPU
+ * governor a percentage (gpu_utilization), and apps may read those on some phones, but not
+ * what each process used: this is the whole phone's GPU, Android included.
  */
 @Composable
 fun gpuBusy(): Float? = androidx.compose.runtime.produceState<Float?>(null) {
-    val file = java.io.File("/sys/class/kgsl/kgsl-3d0/gpubusy")
+    val adreno = java.io.File("/sys/class/kgsl/kgsl-3d0/gpubusy")
+    val mediatek = java.io.File("/sys/kernel/ged/hal/gpu_utilization")
     while (true) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
-                val (busy, total) = file.readText().trim().split(Regex("\\s+")).map { it.toLong() }
+                val (busy, total) = adreno.readText().trim().split(Regex("\\s+")).map { it.toLong() }
                 if (total > 0) (busy.toFloat() / total).coerceIn(0f, 1f) else 0f
+            }.recoverCatching {
+                mediatek.readText().trim().split(Regex("\\s+")).first().toFloat().div(100f).coerceIn(0f, 1f)
             }.getOrNull()
         } ?: return@produceState
         kotlinx.coroutines.delay(1000)

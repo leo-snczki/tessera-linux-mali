@@ -59,6 +59,7 @@ import com.daryan.tessera.container.PermissionManifest
 import com.daryan.tessera.container.ProcessTree
 import com.daryan.tessera.container.PhantomLimit
 import com.daryan.tessera.container.GpuDriver
+import com.daryan.tessera.container.GpuFamily
 import com.daryan.tessera.container.GpuFix
 import com.daryan.tessera.container.PhoneAdb
 import com.daryan.tessera.container.ProotBackend
@@ -370,6 +371,10 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             appendLine("- PRoot binary present: ${status?.prootBinary}")
             appendLine("- Background process limit on: ${status?.phantomProcessLimit} (on means Android may kill apps in the background)")
             appendLine("- GPU driver available: ${gpuAvailable()}, acceleration on: ${_gpuEnabled.value}")
+            GpuDriver.family(getApplication())?.let { family ->
+                val kernel = if (family == GpuFamily.MALI) ", kernel driver: ${GpuDriver.kernelDriver() ?: "unknown (apps can't read it here)"}" else ""
+                appendLine("- GPU: ${family.name.lowercase()} (${family.device})$kernel${if (family.experimental) ", experimental" else ""}")
+            }
             appendLine()
             appendLine("## Apps in the launcher (${apps.size})")
             appendLine()
