@@ -67,8 +67,9 @@ data class Load(val cpu: Float, val memory: Long, val count: Int) {
 /**
  * How busy the phone's GPU is, 0 to 1, sampled every second; null where it can't be read.
  * Adreno's driver reports busy and total time over its last window (gpubusy), MediaTek's GPU
- * governor a percentage (gpu_utilization), and apps may read those on some phones, but not
- * what each process used: this is the whole phone's GPU, Android included.
+ * governor and Arm's kbase (Exynos, Tensor) a percentage (gpu_utilization, utilisation). Apps
+ * may read one of those on some phones, picked once, but not what each process used: this is
+ * the whole phone's GPU, Android included. A failed read keeps the last value.
  */
 @Composable
 fun gpuBusy(): Float? = androidx.compose.runtime.produceState<Float?>(null) {
@@ -91,7 +92,7 @@ fun gpuBusy(): Float? = androidx.compose.runtime.produceState<Float?>(null) {
     while (true) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { read().coerceIn(0f, 1f) }.getOrNull()
-        }
+        } ?: value
         kotlinx.coroutines.delay(1000)
     }
 }.value

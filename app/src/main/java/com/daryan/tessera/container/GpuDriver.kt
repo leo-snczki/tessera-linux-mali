@@ -64,8 +64,10 @@ object GpuDriver {
     fun kernelDriver(): String {
         val modules = runCatching { File("/sys/module").list() }.getOrNull()
             ?: return "unknown (apps can't list kernel modules here)"
-        val name = modules.filter { it.startsWith("mali_kbase") }.maxByOrNull { it.length }
-            ?: return "not a module (built into the kernel, or not kbase)"
+        val kbase = modules.filter { it.startsWith("mali_kbase") }.sorted()
+        // The one carrying the release (MediaTek's mali_kbase_<soc>_r44), else the plain one.
+        val name = kbase.firstOrNull { Regex("_r\\d+$").containsMatchIn(it) } ?: kbase.firstOrNull { it == "mali_kbase" } ?: kbase.firstOrNull()
+            ?: return "no mali_kbase module listed (built in, or named otherwise)"
         val version = runCatching { File("/sys/module/$name/version").readText().trim() }.getOrNull()
         return if (version.isNullOrEmpty()) name else "$name $version"
     }

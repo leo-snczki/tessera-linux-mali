@@ -379,11 +379,11 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                     val warning = if (family.experimental) ", experimental, warning accepted: ${sessions.gpuWarningAccepted()}" else ""
                     appendLine("- GPU: ${family.name.lowercase()} (${family.device})$kernel$warning")
                 }
-                File(GpuFamily.MALI.device).exists() -> appendLine(
-                    "- GPU: a Mali GPU (${GpuFamily.MALI.device}) the app can't use: " +
-                        "${if (File(GpuFamily.MALI.device).canRead()) "this build has no Mali driver" else "Android doesn't let apps open it"}, " +
-                        "kernel driver: ${GpuDriver.kernelDriver()}",
-                )
+                else -> GpuFamily.entries.firstOrNull { File(it.device).exists() }?.let { unusable ->
+                    val why = if (File(unusable.device).canRead()) "this build has no driver for it" else "Android doesn't let apps open it"
+                    val kernel = if (unusable == GpuFamily.MALI) ", kernel driver: ${GpuDriver.kernelDriver()}" else ""
+                    appendLine("- GPU: ${unusable.name.lowercase()} (${unusable.device}) the app can't use: $why$kernel")
+                }
             }
             appendLine()
             appendLine("## Apps in the launcher (${apps.size})")
