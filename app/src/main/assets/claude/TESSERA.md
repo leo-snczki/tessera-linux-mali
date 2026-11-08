@@ -120,9 +120,11 @@ Tessera tells the user which of the two it is.
 | `apt` refuses, lock held / dpkg interrupted | A previous install was killed: `dpkg --configure -a`, and remove stale `/var/lib/dpkg/lock*` only if nothing is running |
 | GUI app starts but nothing appears | A missing GUI helper (`matchbox-window-manager`, `dbus-x11`, `pulseaudio`); install it with apt |
 
-GPU acceleration is Mesa's **Turnip** (Vulkan on Adreno) plus **Zink** (OpenGL on top), and only on
-Snapdragon/Adreno phones. `LIBGL_DRI3_DISABLE=1` is set deliberately: Mesa's DRI3 path waits forever
-on a fence this X server never signals, which hangs GTK apps with a black window.
+GPU acceleration is Mesa's **Turnip** (Vulkan on Adreno) plus **Zink** (OpenGL on top) on
+Snapdragon/Adreno phones, and, experimentally, **PanVK** (from a community kbase port) plus Zink on
+Mali phones, where it is off until the user accepts a warning (it can restart some phones).
+`LIBGL_DRI3_DISABLE=1` is set deliberately: Mesa's DRI3 path waits forever on a fence this X server
+never signals, which hangs GTK apps with a black window.
 
 ## How to help
 

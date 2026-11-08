@@ -47,6 +47,7 @@ GTK, libadwaita, Qt, LibreOffice and Firefox take your wallpaper's colors and fo
 
 **🚀 Desktop-class GPU**<br>
 OpenGL 4.6 and Vulkan on Adreno through our own Turnip + Zink build. glxgears at ~240 fps.
+Experimental on Mali (MediaTek, Exynos, Tensor) through PanVK.
 
 </td>
 </tr>
@@ -274,10 +275,16 @@ GPU, and a GPU meter for the whole phone. What apps printed is under **Logs** in
   WASD, a look area for mouse-look, and buttons that hold Fire, Run, Jump and Reload, so
   first-person games that expect a keyboard and mouse play by touch.
 
-### 🚀 Real GPU acceleration on Snapdragon phones
+### 🚀 Real GPU acceleration on Snapdragon phones, experimental on Mali
 - Tessera ships its own build of Mesa: **Turnip** (Vulkan for Adreno GPUs, talking to Android's
   own GPU driver interface) and **Zink** (OpenGL on top of it). Apps get **OpenGL 4.6 and
   Vulkan** with no setup; on an Adreno 740, glxgears runs at ~240 fps.
+- **Mali phones (MediaTek, Exynos, Tensor), experimental:** **PanVK**, from a community port of
+  Mesa that talks to Android's Mali driver (`/dev/mali0`), with the same Zink on top. No root
+  needed. It starts off: turning it on first warns that it can draw wrong or, on some phones,
+  make the phone restart. On a Mali-G615 tablet in PRoot mode, Vulkan 1.4, OpenGL 4.6 and
+  Firefox work on the GPU; small scenes are still slower than software
+  ([#8](https://github.com/leo-snczki/tessera-linux-mali/issues/8)).
 - **Fast at full resolution too:** frames reach the screen through shared memory, in one piece,
   without tearing. At 1440×2994, glxgears went from 70 to 166 fps and glmark2 from 71 to 159.
 - **Firefox on the GPU:** Tessera turns on its GPU drawing in GPU sessions, so scrolling and video
@@ -362,7 +369,8 @@ with its own Recents card, theme, sound, GPU and per-app permissions.
 ## Getting started
 
 **Requirements:** Android 7 or newer, an arm64 phone (32-bit ARM and x86_64 builds exist but are
-untested), a few GB of free storage. GPU acceleration needs a Snapdragon (Adreno) GPU. Root is
+untested), a few GB of free storage. GPU acceleration needs a Snapdragon (Adreno) GPU, or, experimentally,
+a Mali one. Root is
 optional. Tested on a Xiaomi 13 Ultra and a Samsung Galaxy S26 Ultra, both on Android 16; chroot
 mode with Magisk and with SukiSU.
 
@@ -388,6 +396,7 @@ makes).
 | Firefox, VS Code, HandBrake | ✅ Work, with GPU acceleration |
 | Store, installs, apps installed with apt or .deb | ✅ Works |
 | GPU acceleration (Turnip + Zink) in PRoot mode | ✅ Works on Adreno 740 |
+| GPU acceleration on Mali (PanVK + Zink) | 🧪 Experimental: works in PRoot on a Mali-G615 (Vulkan, OpenGL, Firefox), slower than software for small scenes; chroot and Droidspaces wired but untested |
 | Chroot mode with root | ✅ Works with Magisk and SukiSU (KernelSU forks since 0.5.5), GPU included |
 | Droidspaces containers (Debian, Ubuntu, Kali, Mint…) | 🧪 New; Debian and Flathub apps confirmed in a Kali container; Ubuntu not yet run; Arch and phone adb not yet |
 | Flathub apps (install from the Store, launch, GPU) | ✅ Works in PRoot and chroot; in Droidspaces confirmed in a Kali container |
@@ -415,7 +424,7 @@ flowchart LR
     subgraph Box["Container"]
         Deb["Debian 13"]
         App["The Linux app"]
-        Mesa["Mesa: Turnip + Zink"]
+        Mesa["Mesa: Turnip or PanVK, + Zink"]
         App --> Mesa
     end
     subgraph Flat["Flathub app (its own root)"]
@@ -426,7 +435,7 @@ flowchart LR
     FApp --> Mesa
     SM -- "PRoot (no root)<br/>or chroot + namespaces (root)" --> Box
     App -- "X11 socket" --> X
-    Mesa -- "/dev/kgsl-3d0" --> GPU["Adreno GPU"]
+    Mesa -- "/dev/kgsl-3d0 or /dev/mali0" --> GPU["Adreno or Mali GPU"]
 ```
 
 - **Containers:** PRoot is built from source for Android and ships inside the APK; chroot mode
@@ -480,7 +489,7 @@ JDK 17 and the Android SDK with NDK 29.0.14206865 and CMake 3.31.6.
 git submodule update --init           # Termux:X11 fork (third_party/termux-x11)
 scripts/proot/build.sh                # once: builds PRoot into app/src/main/jniLibs
 scripts/x11/build-native.sh           # once, on Linux or WSL: X server + xkb data into build/x11
-sudo scripts/gpu/build-mesa.sh        # optional, on Linux or WSL: the GPU driver
+sudo scripts/gpu/build-mesa.sh        # optional, on Linux or WSL: the GPU drivers (Adreno, Mali)
 sudo scripts/usb/build-usb.sh         # optional, on Linux or WSL: the USB bridge
 scripts/theme/build-theme.sh          # optional, anywhere with curl: the GTK theme for Linux apps
 ./gradlew assembleDebug testDebugUnitTest
@@ -558,7 +567,8 @@ implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 | [PRoot](https://github.com/termux/proot) (Termux fork) | GPL-2.0-or-later | container engine, built by `scripts/proot/build.sh` |
 | [talloc](https://talloc.samba.org) | LGPL-3.0-or-later | PRoot dependency (`scripts/proot/talloc-compat.c` is adapted from Samba) |
 | [Termux:X11](https://github.com/termux/termux-x11) ([our fork](https://github.com/daryan044/termux-x11)) | GPL-3.0 | X server and GUI windows |
-| [Mesa](https://mesa3d.org) | MIT | GPU driver (Turnip, Zink), built by `scripts/gpu/build-mesa.sh` |
+| [Mesa](https://mesa3d.org) | MIT | GPU drivers (Turnip, Zink), built by `scripts/gpu/build-mesa.sh` |
+| [mali-panvk](https://github.com/JimVulkan/mali-panvk) (Mesa's PanVK on kbase) | MIT | GPU driver on Mali, built by `scripts/gpu/build-mesa.sh` |
 | [libusb](https://libusb.info) | LGPL-2.1-or-later | USB for PRoot apps, built by `scripts/usb/build-usb.sh` |
 | [adw-gtk3](https://github.com/lassekongo83/adw-gtk3) | LGPL-2.1 | GTK 3 theme for Linux apps, packed by `scripts/theme/build-theme.sh` |
 | [Bibata Cursor](https://github.com/ful1e5/Bibata_Cursor) | GPL-3.0 | the white pointer, packed by `scripts/theme/build-theme.sh` |
