@@ -164,6 +164,17 @@ class BackendTest {
         assertTrue("export GPU_DEVICE=''" in chroot.buildLaunch(firefox, session).argv[2])
     }
 
+    @Test fun `Mali sessions get PanVK, none of Turnip's options, and Mali's device`() {
+        val mali = session.copy(gpu = GpuFamily.MALI, gpuFixes = setOf(GpuFix.NO_COMPRESSION))
+        val env = guestEnv(firefox, mali)
+        assertEquals("/opt/tessera-gpu/share/vulkan/icd.d/panfrost_icd.aarch64.json", env["VK_ICD_FILENAMES"])
+        assertFalse("TU_DEBUG" in env)
+        assertEquals("zink", env["GALLIUM_DRIVER"])
+        assertEquals("sw,noshm", env["MESA_VK_WSI_DEBUG"])
+        val chroot = ChrootBackend(paths, "su", appUid = 10484)
+        assertTrue("export GPU_DEVICE=/dev/mali0;" in chroot.buildLaunch(firefox, mali).argv[2])
+    }
+
     @Test fun `sessions without the GPU get none of the driver's settings`() {
         val env = guestEnv(firefox, session)
         assertFalse("VK_ICD_FILENAMES" in env)

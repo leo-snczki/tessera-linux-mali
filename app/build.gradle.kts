@@ -34,7 +34,11 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "com.daryan.tessera"
+        // -Ptessera.idSuffix=.debug: a build that installs beside the phone's Tessera, with data
+        // of its own, for trying changes without touching the installed one or its Linux. Part of
+        // applicationId itself, not applicationIdSuffix: Termux:X11 takes its APPLICATION_ID from
+        // here, and with a suffix it mistook its own app for another and crashed opening windows.
+        applicationId = "com.daryan.tessera" + (project.findProperty("tessera.idSuffix") as String? ?: "")
         minSdk = 24
         // Deliberately 28: from 29 on, SELinux forbids exec() of files in the app's data dir,
         // which is where the rootfs lives. Same trade-off as Termux; blocks Play Store, not F-Droid.
@@ -93,7 +97,8 @@ android {
 
     // xkb keyboard data for the X server, staged by scripts/x11/build-native.sh.
     sourceSets.getByName("main").assets.directories.add(rootProject.file("build/x11/assets").path)
-    // The GPU driver (Mesa Turnip + Zink), staged by scripts/gpu/build-mesa.sh; optional.
+    // The GPU drivers (Turnip for Adreno, PanVK for Mali, each with Zink), staged by
+    // scripts/gpu/build-mesa.sh; optional.
     sourceSets.getByName("main").assets.directories.add(rootProject.file("build/gpu/assets").path)
     // The USB bridge's guest half (libusb + shim), staged by scripts/usb/build-usb.sh; optional.
     sourceSets.getByName("main").assets.directories.add(rootProject.file("build/usb/assets").path)

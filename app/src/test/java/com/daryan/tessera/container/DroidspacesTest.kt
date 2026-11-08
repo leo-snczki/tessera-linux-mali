@@ -360,6 +360,12 @@ class DroidspacesTest {
         assertEquals(flatpak.exec.joinToString(" ") { shellQuote(it) }, parsed["CMD"])
     }
 
+    @Test fun `the container is handed the session's GPU device`() {
+        val backend = DroidspacesBackend(paths, su, binary, container, appUid = 10484, encodeSettings = testEncodeSettings)
+        assertEquals("/dev/mali0", parseEnv(backend.settings(notes, session.copy(gpu = GpuFamily.MALI)))["GPU_DEVICE"])
+        assertEquals("", parseEnv(backend.settings(notes, session))["GPU_DEVICE"])
+    }
+
     @Test fun `a regular launch doesn't enter the Flatpak-only code path`() {
         val (_, settings) = launch(notes)
         assertFalse("FLATPAK_MODE=" in settings)

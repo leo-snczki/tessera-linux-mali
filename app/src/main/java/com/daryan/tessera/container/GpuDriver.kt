@@ -83,6 +83,19 @@ enum class GpuFamily(
     ) {
         override fun env(fixes: Set<GpuFix>) =
             mapOf("TU_DEBUG" to (listOf("noconform") + fixes.map { it.option }).joinToString(","))
+    },
+
+    /**
+     * Mali (MediaTek, Exynos, Tensor): PanVK on Android's kbase interface, from a community
+     * fork (see scripts/gpu/README.md). Experimental: kbase driven from a container can hit
+     * kernel bugs that restart some phones.
+     */
+    MALI(
+        "/dev/mali0",
+        "panfrost_icd.aarch64.json",
+        OptBundle(GpuDriver.GUEST_DIR, "gpu/mesa-panvk.tgz", "gpu/VERSION-panvk", GpuDriver.TAG),
+    ) {
+        override fun env(fixes: Set<GpuFix>) = emptyMap<String, String>()
     };
 
     /** The driver's own settings, with [fixes] (this family's) for its drawing bugs. */

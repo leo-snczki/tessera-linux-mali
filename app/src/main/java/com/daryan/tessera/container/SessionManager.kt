@@ -182,7 +182,7 @@ class SessionManager(
             id = "s$n",
             display = if (app.permissions.display) n else null,
             gpu = gpu,
-            gpuFixes = if (gpu != null) gpuFixesFor(app.id) else emptySet(),
+            gpuFixes = gpu?.let { family -> gpuFixesFor(app.id).filter { it.family == family }.toSet() } ?: emptySet(),
             usbFds = if (backend is ProotBackend) usb?.fds.orEmpty() else emptyMap(),
             theme = app.gui && appearance?.forApp(app.id) != null,
             flatpak = app.gui && app.flatpak != null,
