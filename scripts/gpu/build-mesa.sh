@@ -4,10 +4,10 @@
 #
 # Builds the GPU drivers the containers use, for Debian trixie arm64, one per GPU family:
 #   adreno: Mesa's Turnip (Vulkan) for Android's KGSL GPU interface;
-#   mali:   Mesa's PanVK (Vulkan) for Android's Mali kbase interface, from the PanVK fork that
-#           adds it (mirrored at $PANVK_REPO, pinned to $PANVK_REV; see scripts/gpu/README.md);
-# each with Zink (OpenGL on Vulkan). Debian's own Mesa only knows the desktop DRM interfaces,
-# which Android doesn't give apps.
+#   mali:   Mesa's PanVK (Vulkan) for Android's Mali kbase interface, from the port that adds it
+#           ($PANVK_REPO, pinned to $PANVK_REV; see scripts/gpu/README.md);
+# each with Zink (OpenGL on Vulkan) from the Mesa release. Debian's own Mesa only knows the
+# desktop DRM interfaces, which Android doesn't give apps.
 #
 # Cross-compiles inside a Debian trixie root (so the libraries match the containers exactly)
 # and packs each as build/gpu/assets/gpu/mesa-<driver>.tgz with its version file (bundled into
@@ -26,8 +26,8 @@
 set -euo pipefail
 
 export MESA_VERSION=${MESA_VERSION:-26.2.4}
-export PANVK_REPO=${PANVK_REPO:-leo-snczki/panvk}
-export PANVK_REV=${PANVK_REV:-efbb4f4697dee645582909aa6fed4802763cb91e}
+export PANVK_REPO=${PANVK_REPO:-JimVulkan/mali-panvk}
+export PANVK_REV=${PANVK_REV:-58f2c55854bd48b18df756edb11f187af9cd2fde}
 export PREFIX=/opt/tessera-gpu
 MESA_GPU=${MESA_GPU:-all}
 TRIXIE=${TRIXIE:-/opt/trixie}
@@ -85,7 +85,8 @@ for family in $FAMILIES; do
     echo "$MESA_VERSION-t5" > "$OUT/VERSION"
   else
     tar --format=ustar -C "$stage" -czf "$OUT/mesa-panvk.tgz" "${PREFIX#/}"
-    echo "panvk-${PANVK_REV:0:12}-p1" > "$OUT/VERSION-panvk"
+    # Both trees: PanVK's revision and the release its OpenGL and helpers come from.
+    echo "panvk-${PANVK_REV:0:12}-mesa$MESA_VERSION-p1" > "$OUT/VERSION-panvk"
   fi
 done
 ls -l "$OUT"

@@ -1,6 +1,8 @@
---- a/src/vulkan/wsi/wsi_common.c	2026-11-08 01:01:16.593575707 +0000
-+++ b/src/vulkan/wsi/wsi_common.c	2026-11-08 01:01:29.826746712 +0000
-@@ -248,6 +248,7 @@
+diff --git src/vulkan/wsi/wsi_common.c src/vulkan/wsi/wsi_common.c
+index 6d08cf5..bd6e68d 100644
+--- a/src/vulkan/wsi/wsi_common.c
++++ b/src/vulkan/wsi/wsi_common.c
+@@ -230,6 +230,7 @@ wsi_device_init(struct wsi_device *wsi,
     WSI_GET_CB(GetCalibratedTimestampsKHR);
     WSI_GET_CB(GetQueryPoolResults);
     WSI_GET_CB(GetSemaphoreFdKHR);
@@ -8,11 +10,10 @@
     WSI_GET_CB(ResetFences);
     WSI_GET_CB(QueueSubmit2);
     WSI_GET_CB(SetDebugUtilsObjectNameEXT);
-@@ -2914,6 +2915,20 @@
-          if (results[i] != VK_SUCCESS)
-             continue;
-       }
-+      if (wsi->sw) {
+@@ -2986,6 +2987,18 @@ wsi_common_queue_present(const struct wsi_device *wsi,
+       if (swapchain->sw) {
+          wsi->WaitForFences(vk_device_to_handle(dev),
+                             1, &swapchain->fences[image_index], true, ~0ull);
 +         /* Tessera: the frame may sit in non-coherent cached memory; drop stale lines. */
 +         VkDeviceMemory cpu_mem = image->blit.memory != VK_NULL_HANDLE ?
 +            image->blit.memory : image->memory;
@@ -25,11 +26,10 @@
 +            };
 +            wsi->InvalidateMappedMemoryRanges(vk_device_to_handle(dev), 1, &range);
 +         }
-+      }
+       }
  
        const VkPresentRegionKHR *region = NULL;
-       if (regions && regions->pRegions)
-@@ -3108,8 +3123,22 @@
+@@ -3183,8 +3196,22 @@ wsi_select_host_memory_type(const struct wsi_device *wsi,
  {
     VkMemoryPropertyFlags req_props = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
  
@@ -54,9 +54,11 @@
  
     return wsi_select_memory_type(wsi, req_props, 0 /* deny_props */, type_bits);
  }
---- a/src/vulkan/wsi/wsi_common.h	2026-11-08 01:01:16.601575803 +0000
-+++ b/src/vulkan/wsi/wsi_common.h	2026-11-08 01:01:16.636653152 +0000
-@@ -256,6 +256,7 @@
+diff --git src/vulkan/wsi/wsi_common.h src/vulkan/wsi/wsi_common.h
+index a7ec192..3ed6900 100644
+--- a/src/vulkan/wsi/wsi_common.h
++++ b/src/vulkan/wsi/wsi_common.h
+@@ -260,6 +260,7 @@ struct wsi_device {
     WSI_CB(GetPhysicalDeviceQueueFamilyProperties);
     WSI_CB(GetQueryPoolResults);
     WSI_CB(GetSemaphoreFdKHR);

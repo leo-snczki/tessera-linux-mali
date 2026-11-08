@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # The part of build-mesa.sh that runs inside the Debian trixie build root (or on a trixie host):
-# builds one GPU family's Mesa into $WORK/stage-<family>. Not meant to be run by hand.
+# builds one GPU family's driver into $WORK/stage-<family>: the Mesa release (OpenGL through
+# Zink, and Turnip for Adreno), plus PanVK from its kbase port for Mali. Not meant to be run by hand.
 #   build-in-root.sh <work dir> <adreno|mali>
 # Env (from build-mesa.sh): MESA_VERSION, PANVK_REPO, PANVK_REV, PREFIX, ON_HOST.
 set -euo pipefail
@@ -32,40 +33,29 @@ if [ -z "${ON_HOST:-}" ]; then
   fi
 fi
 
-mkdir -p "$WORK/src" && cd "$WORK/src"
-# Mesa's source: a release for Adreno, the pinned PanVK fork (kbase backend) for Mali. Unpacked
-# aside and moved into place whole, so an interrupted download is never taken for the source.
-if [ "$FAMILY" = adreno ]; then
-  SRC=mesa-$MESA_VERSION
-  URL=https://archive.mesa3d.org/mesa-$MESA_VERSION.tar.xz UNPACK=xJ
-else
-  SRC=panvk-$PANVK_REV
-  URL=https://github.com/$PANVK_REPO/archive/$PANVK_REV.tar.gz UNPACK=xz
-fi
-if [ ! -d "$SRC" ]; then
-  rm -rf "$SRC.part" && mkdir "$SRC.part"
-  curl -fsSL "$URL" | tar "$UNPACK" --strip-components=1 -C "$SRC.part"
-  mv "$SRC.part" "$SRC"
-fi
-cd "$SRC"
+mkdir -p "$WORK/src"
 
-# Our fixes. For Mali, one in patches-panvk replaces the one of the same name in patches (its
-# rebase onto the fork), and patches-panvk's others are added. One a reused source tree already
-# has is skipped; one that doesn't apply stops the build, rather than shipping a driver without it.
-patches=()
-for p in "$WORK"/patches/*.patch; do
-  if [ "$FAMILY" = mali ] && [ -f "$WORK/patches-panvk/$(basename "$p")" ]; then continue; fi
-  patches+=("$p")
-done
-[ "$FAMILY" = mali ] && patches+=("$WORK"/patches-panvk/*.patch)
-for p in "${patches[@]}"; do
-  [ -f "$p" ] || continue
-  if patch -p1 -R --dry-run -s -f < "$p" >/dev/null 2>&1; then
-    echo "already applied: $(basename "$p")"
-  else
-    patch -p1 -N < "$p"
-  fi
-done
+# Unpacks <url> as $WORK/src/<dir>, aside first and moved into place whole, so an interrupted
+# download is never taken for the source.
+fetch() { # <dir> <url> <tar option>
+  [ -d "$WORK/src/$1" ] && return
+  rm -rf "$WORK/src/$1.part" && mkdir "$WORK/src/$1.part"
+  curl -fsSL "$2" | tar "$3" --strip-components=1 -C "$WORK/src/$1.part"
+  mv "$WORK/src/$1.part" "$WORK/src/$1"
+}
+
+# Applies our fixes to the source tree in the current directory. One a reused tree already has
+# is skipped; one that doesn't apply stops the build, rather than shipping a driver without it.
+apply_patches() { # <patch>...
+  for p in "$@"; do
+    [ -f "$p" ] || continue
+    if patch -p1 -R --dry-run -s -f < "$p" >/dev/null 2>&1; then
+      echo "already applied: $(basename "$p")"
+    else
+      patch -p1 -N < "$p"
+    fi
+  done
+}
 
 cat > "$WORK/src/arm64.cross" <<CROSS
 [binaries]
@@ -81,27 +71,63 @@ cpu = 'aarch64'
 endian = 'little'
 CROSS
 
-COMMON=(
-  --cross-file "$WORK/src/arm64.cross"
-  --prefix="$PREFIX" --libdir=lib --buildtype=release -Db_ndebug=true
-  -Dplatforms=x11 -Dgallium-drivers=zink
-  -Dglx=dri -Degl=enabled -Dgles1=disabled -Dgles2=enabled -Dglvnd=enabled
-  -Dllvm=disabled -Dvalgrind=disabled -Dlibunwind=disabled -Dvideo-codecs= -Dtools= -Dvulkan-layers=
-)
+# Cross-builds the tree in the current directory into build-<name> and installs it into $STAGE.
+cross_build() { # <name> <meson option>...
+  local name=$1; shift
+  rm -rf "build-$name"
+  meson setup "build-$name" --cross-file "$WORK/src/arm64.cross" \
+    --prefix="$PREFIX" --libdir=lib --buildtype=release -Db_ndebug=true -Dplatforms=x11 \
+    -Dllvm=disabled -Dvalgrind=disabled -Dlibunwind=disabled -Dvideo-codecs= -Dtools= -Dvulkan-layers= \
+    "$@"
+  ninja -C "build-$name"
+  DESTDIR="$STAGE" ninja -C "build-$name" install
+}
+# OpenGL through Zink (on whatever Vulkan driver the loader finds), with GLX and EGL.
+GL=(-Dgallium-drivers=zink -Dglx=dri -Degl=enabled -Dgles1=disabled -Dgles2=enabled -Dglvnd=enabled)
+
+STAGE="$WORK/stage-$FAMILY"
+rm -rf "$STAGE"
+fetch "mesa-$MESA_VERSION" "https://archive.mesa3d.org/mesa-$MESA_VERSION.tar.xz" xJ
+cd "$WORK/src/mesa-$MESA_VERSION"
+apply_patches "$WORK"/patches/*.patch
+
 if [ "$FAMILY" = adreno ]; then
-  FLAGS=(-Dvulkan-drivers=freedreno -Dfreedreno-kmds=kgsl)
+  cross_build adreno "${GL[@]}" -Dvulkan-drivers=freedreno -Dfreedreno-kmds=kgsl
 else
-  # The build machine's CL compilers first (built once per source tree), then the phone's
-  # driver with them: kbase only, as Android has no panfrost/panthor DRM device.
-  # Keyed on the fork's revision and our patches to it, which the compilers are built with too.
-  TOOLS="$WORK/host-tools-$PANVK_REV-$(cat "$WORK"/patches-panvk/*.patch 2>/dev/null | sha256sum | cut -c1-12)"
+  # OpenGL from the Mesa release, as for Adreno; Zink reaches PanVK through the Vulkan loader,
+  # so the two needn't come from the same tree.
+  cross_build gl "${GL[@]}" -Dvulkan-drivers=
+  # PanVK from the kbase port, Vulkan only (it carries no OpenGL), with our WSI fixes: those
+  # rebased onto it from patches-panvk, the others from patches.
+  # One tree per Mesa release too, as the helpers below come from it.
+  fetch "panvk-$PANVK_REV-$MESA_VERSION" "https://github.com/$PANVK_REPO/archive/$PANVK_REV.tar.gz" xz
+  cd "$WORK/src/panvk-$PANVK_REV-$MESA_VERSION"
+  wsi=()
+  for p in "$WORK"/patches/wsi-*.patch; do
+    [ -f "$p" ] || continue
+    if [ -f "$WORK/patches-panvk/$(basename "$p")" ]; then wsi+=("$WORK/patches-panvk/$(basename "$p")"); else wsi+=("$p"); fi
+  done
+  for p in "$WORK"/patches-panvk/*.patch; do
+    [ -f "$p" ] && [ ! -f "$WORK/patches/$(basename "$p")" ] && wsi+=("$p")
+  done
+  apply_patches "${wsi[@]}"
+  # The port is cut down to what Android needs; X11 presenting also needs Mesa's X11 and loader
+  # helpers, small and stable, taken from the release beside it.
+  for d in src/x11 src/loader; do
+    [ -d "$d" ] || cp -r "$WORK/src/mesa-$MESA_VERSION/$d" "$d"
+  done
+  # And the headers they include, where the port dropped them (never replacing its own).
+  cp -rn "$WORK/src/mesa-$MESA_VERSION/include/." include/
+  # Its OpenCL helpers are compiled at build time by Mesa's CL compilers from the same tree,
+  # built first for the build machine. Keyed on its revision and our patches to it.
+  TOOLS="$WORK/host-tools-$PANVK_REV-$(cat /dev/null "${wsi[@]}" | sha256sum | cut -c1-12)"
   if [ ! -d "$TOOLS" ]; then
     rm -rf build-host
-    # With clang: the fork's SPIR-V linker check passes clang-only warning flags, which make GCC
+    # With clang: Mesa's SPIR-V linker check passes clang-only warning flags, which make GCC
     # fail it and blame an old SPIRV-Tools.
     CC=clang CXX=clang++ meson setup build-host --buildtype=release -Dllvm=enabled \
       -Dmesa-clc=enabled -Dprecomp-compiler=enabled \
-      -Dplatforms= -Dvulkan-drivers=panfrost -Dpanfrost-kmds=panthor -Dgallium-drivers= \
+      -Dplatforms= -Dvulkan-drivers=panfrost -Dgallium-drivers= \
       -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false -Dgles1=disabled -Dgles2=disabled \
       -Dxmlconfig=disabled -Dvalgrind=disabled -Dlibunwind=disabled -Dvideo-codecs= -Dtools= \
       -Dvulkan-layers= -Dbuild-tests=false
@@ -115,11 +141,8 @@ else
     mv "$TOOLS.part" "$TOOLS"
   fi
   export PATH="$TOOLS:$PATH"
-  FLAGS=(-Dvulkan-drivers=panfrost -Dpanfrost-kmds=kbase -Dmesa-clc=system -Dprecomp-compiler=system)
+  cross_build vk -Dvulkan-drivers=panfrost -Dgallium-drivers= -Dopengl=false -Dglx=disabled \
+    -Degl=disabled -Dgbm=disabled -Dgles1=disabled -Dgles2=disabled \
+    -Dmesa-clc=system -Dprecomp-compiler=system
 fi
-
-rm -rf build
-meson setup build "${COMMON[@]}" "${FLAGS[@]}"
-ninja -C build
-rm -rf "$WORK/stage-$FAMILY" && DESTDIR="$WORK/stage-$FAMILY" ninja -C build install
-aarch64-linux-gnu-strip --strip-unneeded $(find "$WORK/stage-$FAMILY" -name '*.so*' -type f)
+aarch64-linux-gnu-strip --strip-unneeded $(find "$STAGE" -name '*.so*' -type f)
