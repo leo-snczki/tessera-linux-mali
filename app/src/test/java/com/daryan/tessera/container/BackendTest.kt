@@ -149,7 +149,26 @@ class BackendTest {
     }
 
     @Test fun `software-only GUI sessions use GTK 4 Cairo renderer`() {
-        assertEquals("cairo", guestEnv(firefox, session.copy(gpu = false))["GSK_RENDERER"])
+        assertEquals("cairo", guestEnv(firefox, session.copy(gpu = null))["GSK_RENDERER"])
+    }
+
+    @Test fun `Adreno sessions get Turnip with the app's fixes and Adreno's device`() {
+        val adreno = session.copy(gpu = GpuFamily.ADRENO, gpuFixes = setOf(GpuFix.NO_COMPRESSION))
+        val env = guestEnv(firefox, adreno)
+        assertEquals("/opt/tessera-gpu/share/vulkan/icd.d/freedreno_icd.aarch64.json", env["VK_ICD_FILENAMES"])
+        assertEquals("noconform,noubwc", env["TU_DEBUG"])
+        assertEquals("zink", env["GALLIUM_DRIVER"])
+        assertFalse("LIBGL_ALWAYS_SOFTWARE" in env)
+        val chroot = ChrootBackend(paths, "su", appUid = 10484)
+        assertTrue("export GPU_DEVICE=/dev/kgsl-3d0;" in chroot.buildLaunch(firefox, adreno).argv[2])
+        assertTrue("export GPU_DEVICE=''" in chroot.buildLaunch(firefox, session).argv[2])
+    }
+
+    @Test fun `sessions without the GPU get none of the driver's settings`() {
+        val env = guestEnv(firefox, session)
+        assertFalse("VK_ICD_FILENAMES" in env)
+        assertFalse("TU_DEBUG" in env)
+        assertEquals("1", env["LIBGL_ALWAYS_SOFTWARE"])
     }
 
     @Test fun `GUI wrapper keeps its mode separate from the window manager pid`() {

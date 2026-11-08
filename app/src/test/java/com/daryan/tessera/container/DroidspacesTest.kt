@@ -338,7 +338,7 @@ class DroidspacesTest {
         )
         val env = mapOf("HOME" to "/home/user", "DISPLAY" to ":3", "FLATPAK_ID" to "org.example.Notes")
         val backend = DroidspacesBackend(paths, su, binary, container, appUid = 10484, encodeSettings = testEncodeSettings)
-        val spec = backend.buildFlatpakLaunch(flatpak, session.copy(gpu = true), env)
+        val spec = backend.buildFlatpakLaunch(flatpak, session.copy(gpu = GpuFamily.ADRENO), env)
         val payload = spec.argv[2].substringAfter("${Droidspaces.GUEST_SCRIPT} s3 ")
         val chunks = payload.split(' ')
         assertTrue(chunks.isNotEmpty())

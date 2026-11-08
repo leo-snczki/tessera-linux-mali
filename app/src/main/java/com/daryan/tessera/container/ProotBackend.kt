@@ -120,7 +120,7 @@ class ProotBackend(
             }
             // The container's fonts, which the runtime's fontconfig looks for under /run/host.
             bind("$rootfs/usr/share/fonts", "/run/host/fonts")
-            if (session.gpu) bind("$rootfs${GpuDriver.GUEST_DIR}", GpuDriver.GUEST_DIR)
+            if (session.gpu != null) bind("$rootfs${GpuDriver.GUEST_DIR}", GpuDriver.GUEST_DIR)
             if (exists("$rootfs${ThemePack.GUEST_DIR}")) bind("$rootfs${ThemePack.GUEST_DIR}", ThemePack.GUEST_DIR)
             p.filesystem.filter { exists(it.path) }.forEach { bind(it.path, it.mountAt) }
             add("/usr/bin/env")
@@ -213,8 +213,8 @@ internal fun guestEnv(app: PermissionManifest, session: Session): Map<String, St
         put("LIBGL_DRI3_DISABLE", "1")
         // That covers GLX only. GTK 4 apps (HandBrake) set up EGL, which takes the same path and
         // draws black; Mesa's software rasterizer presents through plain X images instead.
-        if (session.gpu) {
-            putAll(GpuDriver.env(session.gpuFixes))
+        if (session.gpu != null) {
+            putAll(GpuDriver.env(session.gpu, session.gpuFixes))
         } else {
             put("LIBGL_ALWAYS_SOFTWARE", "1")
             // GTK 4's default GL renderer may fail on devices without a usable EGL/GLES stack.

@@ -55,8 +55,8 @@ class Diagnostics(
                     appendLine("app: ${app.name} (${app.id})")
                     appendLine("command: ${app.exec.joinToString(" ") { shellQuote(it) }}")
                     appendLine("engine: $engine")
-                    appendLine("windowed: ${app.gui}, display: ${session.display}, gpu: ${session.gpu}")
-                    if (session.gpu && session.gpuFixes.isNotEmpty()) {
+                    appendLine("windowed: ${app.gui}, display: ${session.display}, gpu: ${session.gpu?.name?.lowercase() ?: "off"}")
+                    if (session.gpu != null && session.gpuFixes.isNotEmpty()) {
                         appendLine("graphics fixes: ${session.gpuFixes.joinToString { it.name }}")
                     }
                     appendLine("permissions: ${describe(app.permissions)}")

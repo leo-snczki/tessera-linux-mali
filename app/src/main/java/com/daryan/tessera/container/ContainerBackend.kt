@@ -41,8 +41,8 @@ data class Session(
     /** X display number, when the app has the display permission. */
     val display: Int? = null,
     val term: String = "xterm-256color",
-    /** Use the hardware graphics driver ([GpuDriver]). */
-    val gpu: Boolean = false,
+    /** The phone's GPU, when the app uses the hardware graphics driver ([GpuDriver]). */
+    val gpu: GpuFamily? = null,
     /** Workarounds for the driver's drawing bugs, when [gpu] is on. */
     val gpuFixes: Set<GpuFix> = emptySet(),
     /** USB devices opened for a PRoot app ([UsbBridge]): guest path -> inherited fd. */

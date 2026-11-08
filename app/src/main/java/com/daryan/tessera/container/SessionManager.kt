@@ -169,18 +169,20 @@ class SessionManager(
             File(paths.cacheDir, "sessions/s$id").let { it.deleteRecursively() || !it.exists() }
         }
         // Hardware graphics for windowed apps, when it's on and the driver is in that system.
-        val gpu = app.gui && gpuFor(app.id) && when (backend) {
-            is ProotBackend -> GpuDriver.installed(context, paths.prootRootfs)
-            is ChrootBackend -> GpuDriver.installedAsRoot(context)
-            // The container needs the GPU's device node too (hardware or GPU access on).
-            is DroidspacesBackend -> backend.hasGpuDevice && GpuDriver.installedAsRoot(context)
-            else -> false
+        val gpu = if (!app.gui || !gpuFor(app.id)) null else GpuDriver.family(context)?.takeIf {
+            when (backend) {
+                is ProotBackend -> GpuDriver.installed(context, paths.prootRootfs)
+                is ChrootBackend -> GpuDriver.installedAsRoot(context)
+                // The container needs the GPU's device node too (hardware or GPU access on).
+                is DroidspacesBackend -> backend.hasGpuDevice && GpuDriver.installedAsRoot(context)
+                else -> false
+            }
         }
         val session = Session(
             id = "s$n",
             display = if (app.permissions.display) n else null,
             gpu = gpu,
-            gpuFixes = if (gpu) gpuFixesFor(app.id) else emptySet(),
+            gpuFixes = if (gpu != null) gpuFixesFor(app.id) else emptySet(),
             usbFds = if (backend is ProotBackend) usb?.fds.orEmpty() else emptyMap(),
             theme = app.gui && appearance?.forApp(app.id) != null,
             flatpak = app.gui && app.flatpak != null,
@@ -304,7 +306,7 @@ class SessionManager(
                 line.indexOf('=').takeIf { it > 0 }?.let { line.substring(0, it) to line.substring(it + 1) }
             }.toMap().filterKeys { it in FLATPAK_SHARED_ENV }
             val base = guestEnv(app, session) + shared
-            val env = base + Flatpak.env(requireNotNull(app.flatpak), session.gpu, base)
+            val env = base + Flatpak.env(requireNotNull(app.flatpak), session.gpu != null, base)
             val spec = backend.buildFlatpakLaunch(app, session, env)
             val pid = IntArray(1)
             val fd = Pty.spawn(spec, rows = 24, cols = 80, pidOut = pid)
@@ -578,7 +580,7 @@ class SessionManager(
                     line.indexOf('=').takeIf { it > 0 }?.let { line.substring(0, it) to line.substring(it + 1) }
                 }.toMap().filterKeys { it in FLATPAK_SHARED_ENV }
                 val base = guestEnv(app, session) + shared
-                val spec = backend.buildFlatpakLaunch(app, session, base + Flatpak.env(ref, session.gpu, base))
+                val spec = backend.buildFlatpakLaunch(app, session, base + Flatpak.env(ref, session.gpu != null, base))
                 val pid = IntArray(1)
                 val fd = Pty.spawn(spec, rows = 24, cols = 80, pidOut = pid)
                 launch { readOutput(sessionId, fd) }

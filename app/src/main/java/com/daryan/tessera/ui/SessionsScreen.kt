@@ -165,7 +165,7 @@ private fun SessionCard(
             // What it uses; what it printed is under Logs in the title bar.
             if (s.running && !processes.isNullOrEmpty()) {
                 Spacer(Modifier.height(16.dp))
-                SessionMeters(processes, gpu = s.session.gpu)
+                SessionMeters(processes, gpu = s.session.gpu != null)
                 Spacer(Modifier.height(8.dp))
                 SessionLoad(processes, onEndProcess, totals = false)
             }
