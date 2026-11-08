@@ -72,17 +72,26 @@ data class Load(val cpu: Float, val memory: Long, val count: Int) {
  */
 @Composable
 fun gpuBusy(): Float? = androidx.compose.runtime.produceState<Float?>(null) {
-    val adreno = java.io.File("/sys/class/kgsl/kgsl-3d0/gpubusy")
-    val mediatek = java.io.File("/sys/kernel/ged/hal/gpu_utilization")
+    val blank = Regex("\\s+")
+    // Adreno: busy and total time. MediaTek's governor, and Arm's kbase on Exynos and Tensor: a
+    // percentage first on the line.
+    fun percent(file: java.io.File) = blank.split(file.readText().trim()).first().trimEnd('%').toFloat().div(100f)
+    val sources = listOf<() -> Float>(
+        {
+            val (busy, total) = blank.split(java.io.File("/sys/class/kgsl/kgsl-3d0/gpubusy").readText().trim()).map { it.toLong() }
+            if (total > 0) busy.toFloat() / total else 0f
+        },
+        { percent(java.io.File("/sys/kernel/ged/hal/gpu_utilization")) },
+        { percent(java.io.File("/sys/class/misc/mali0/device/utilisation")) },
+    )
+    // The first this phone lets apps read, picked once; none, and there's no meter.
+    val read = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        sources.firstOrNull { runCatching { it() }.isSuccess }
+    } ?: return@produceState
     while (true) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val (busy, total) = adreno.readText().trim().split(Regex("\\s+")).map { it.toLong() }
-                if (total > 0) (busy.toFloat() / total).coerceIn(0f, 1f) else 0f
-            }.recoverCatching {
-                mediatek.readText().trim().split(Regex("\\s+")).first().toFloat().div(100f).coerceIn(0f, 1f)
-            }.getOrNull()
-        } ?: return@produceState
+            runCatching { read().coerceIn(0f, 1f) }.getOrNull()
+        }
         kotlinx.coroutines.delay(1000)
     }
 }.value

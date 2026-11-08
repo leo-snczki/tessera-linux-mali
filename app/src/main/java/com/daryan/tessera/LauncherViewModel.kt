@@ -371,9 +371,19 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             appendLine("- PRoot binary present: ${status?.prootBinary}")
             appendLine("- Background process limit on: ${status?.phantomProcessLimit} (on means Android may kill apps in the background)")
             appendLine("- GPU driver available: ${gpuAvailable()}, acceleration on: ${_gpuEnabled.value}")
-            GpuDriver.family(getApplication())?.let { family ->
-                val kernel = if (family == GpuFamily.MALI) ", kernel driver: ${GpuDriver.kernelDriver() ?: "unknown (apps can't read it here)"}" else ""
-                appendLine("- GPU: ${family.name.lowercase()} (${family.device})$kernel${if (family.experimental) ", experimental" else ""}")
+            val family = GpuDriver.family(getApplication())
+            when {
+                family != null -> {
+                    val kernel = if (family == GpuFamily.MALI) ", kernel driver: ${GpuDriver.kernelDriver()}" else ""
+                    // Sessions only use an experimental driver once its warning was accepted.
+                    val warning = if (family.experimental) ", experimental, warning accepted: ${sessions.gpuWarningAccepted()}" else ""
+                    appendLine("- GPU: ${family.name.lowercase()} (${family.device})$kernel$warning")
+                }
+                File(GpuFamily.MALI.device).exists() -> appendLine(
+                    "- GPU: a Mali GPU (${GpuFamily.MALI.device}) the app can't use: " +
+                        "${if (File(GpuFamily.MALI.device).canRead()) "this build has no Mali driver" else "Android doesn't let apps open it"}, " +
+                        "kernel driver: ${GpuDriver.kernelDriver()}",
+                )
             }
             appendLine()
             appendLine("## Apps in the launcher (${apps.size})")

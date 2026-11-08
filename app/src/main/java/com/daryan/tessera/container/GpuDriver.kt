@@ -57,11 +57,18 @@ object GpuDriver {
     }
 
     /**
-     * Android's kernel driver for a Mali GPU, as its module is named (mali_kbase_mt6897_r44:
-     * kbase release r44), for diagnostics; null where apps may not list kernel modules.
+     * Android's kernel driver for a Mali GPU, for diagnostics: its module's name, which on
+     * MediaTek carries the kbase release (mali_kbase_mt6897_r44), and its version where the
+     * module has one; or why it isn't known.
      */
-    fun kernelDriver(): String? =
-        runCatching { File("/sys/module").list()?.filter { it.startsWith("mali_kbase") }?.sorted()?.firstOrNull() }.getOrNull()
+    fun kernelDriver(): String {
+        val modules = runCatching { File("/sys/module").list() }.getOrNull()
+            ?: return "unknown (apps can't list kernel modules here)"
+        val name = modules.filter { it.startsWith("mali_kbase") }.maxByOrNull { it.length }
+            ?: return "not a module (built into the kernel, or not kbase)"
+        val version = runCatching { File("/sys/module/$name/version").readText().trim() }.getOrNull()
+        return if (version.isNullOrEmpty()) name else "$name $version"
+    }
 
     /** Whether this build carries a driver for this phone's GPU, and the app can open it. */
     fun available(context: Context): Boolean = family(context) != null
