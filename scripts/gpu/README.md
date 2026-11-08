@@ -6,7 +6,7 @@ carries; the app unpacks the one matching the phone's GPU into a container's `/o
 | Family | Driver | Source | Archive | Version file |
 |---|---|---|---|---|
 | Adreno (Snapdragon) | Turnip, KGSL | Mesa release `MESA_VERSION` | `mesa-turnip.tgz` | `VERSION` |
-| Mali (MediaTek, Exynos, Tensor) | PanVK, kbase | [JimVulkan/mali-panvk](https://github.com/JimVulkan/mali-panvk) at `PANVK_REV`, for Vulkan | `mesa-panvk.tgz` | `VERSION-panvk` |
+| Mali (MediaTek, Exynos, Tensor) | PanVK, kbase | [leo-snczki/mali-panvk](https://github.com/leo-snczki/mali-panvk) (mirror of JimVulkan/mali-panvk) at `PANVK_REV`, for Vulkan | `mesa-panvk.tgz` | `VERSION-panvk` |
 
 Both come with Zink, GLX and EGL (OpenGL on Vulkan) from the Mesa release: Zink reaches the
 Vulkan driver through the loader, so PanVK needn't come from the same tree (and the port carries
@@ -27,17 +27,18 @@ lives in community ports. We use [JimVulkan/mali-panvk](https://github.com/JimVu
 (MIT, Mesa 27.0-devel): it has every Mali arch from Bifrost to the G1, v11 (G615/G715)
 included, which yo-www/panvk, tried first, lacks ("Unknown gpu_id (0xb8a31030)" on a G615).
 It is cut down to what Android needs, so the build fills in Mesa's X11 and loader helpers and
-the headers they include from the release beside it. It is pinned to one full commit; a mirror
-under our own account (so a rewritten or deleted upstream can't break a build) is still to do.
+the headers they include from the release beside it. We build from our own mirror,
+`leo-snczki/mali-panvk`, pinned to one full commit, so a rewritten or deleted upstream never
+changes or breaks a build.
 
 ## Updating PanVK
 
 Claude does this when asked ("update PanVK"); it needs the Mali test tablet plugged in over USB
 (adb from `nix shell nixpkgs#android-tools`).
 
-1. Fetch upstream (`https://github.com/JimVulkan/mali-panvk.git`, `main`); once there is a
-   mirror, push it there too. If upstream rewrote history, push the new history to a branch named
-   after the date instead of force-pushing, so old pins keep resolving.
+1. Sync the mirror: fetch `https://github.com/JimVulkan/mali-panvk.git` `main` into a clone of
+   `leo-snczki/mali-panvk` and push `main`. If upstream rewrote history, push the new history to
+   a branch named after the date instead of force-pushing, so old pins keep resolving.
 2. Pick the new commit (normally upstream's head) and read what changed since `PANVK_REV`,
    especially anything about kbase, WSI or the arch table.
 3. Set `PANVK_REV` in `build-mesa.sh` and bump the `-pN` suffix written to `VERSION-panvk` only

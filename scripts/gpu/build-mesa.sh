@@ -26,7 +26,7 @@
 set -euo pipefail
 
 export MESA_VERSION=${MESA_VERSION:-26.2.4}
-export PANVK_REPO=${PANVK_REPO:-JimVulkan/mali-panvk}
+export PANVK_REPO=${PANVK_REPO:-leo-snczki/mali-panvk}
 export PANVK_REV=${PANVK_REV:-58f2c55854bd48b18df756edb11f187af9cd2fde}
 export PREFIX=/opt/tessera-gpu
 MESA_GPU=${MESA_GPU:-all}
