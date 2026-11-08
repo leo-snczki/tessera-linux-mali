@@ -283,8 +283,8 @@ GPU, and a GPU meter for the whole phone. What apps printed is under **Logs** in
   Mesa that talks to Android's Mali driver (`/dev/mali0`), with the same Zink on top. No root
   needed. It starts off: turning it on first warns that it can draw wrong or, on some phones,
   make the phone restart. On a Mali-G615 tablet in PRoot mode, Vulkan 1.4, OpenGL 4.6 and
-  Firefox work on the GPU; small scenes are still slower than software
-  ([#8](https://github.com/leo-snczki/tessera-linux-mali/issues/8)).
+  Firefox work on the GPU; glmark2 scores 135 in a window (311 off-screen) against 112 for
+  software, and 13 times its frame rate in the heaviest scene.
 - **Fast at full resolution too:** frames reach the screen through shared memory, in one piece,
   without tearing. At 1440×2994, glxgears went from 70 to 166 fps and glmark2 from 71 to 159.
 - **Firefox on the GPU:** Tessera turns on its GPU drawing in GPU sessions, so scrolling and video
@@ -396,7 +396,7 @@ makes).
 | Firefox, VS Code, HandBrake | ✅ Work, with GPU acceleration |
 | Store, installs, apps installed with apt or .deb | ✅ Works |
 | GPU acceleration (Turnip + Zink) in PRoot mode | ✅ Works on Adreno 740 |
-| GPU acceleration on Mali (PanVK + Zink) | 🧪 Experimental: works in PRoot on a Mali-G615 (Vulkan, OpenGL, Firefox), slower than software for small scenes; chroot and Droidspaces wired but untested |
+| GPU acceleration on Mali (PanVK + Zink) | 🧪 Experimental: works in PRoot on a Mali-G615 (Vulkan, OpenGL, Firefox; glmark2 135 vs 112 in software); chroot and Droidspaces wired but untested |
 | Chroot mode with root | ✅ Works with Magisk and SukiSU (KernelSU forks since 0.5.5), GPU included |
 | Droidspaces containers (Debian, Ubuntu, Kali, Mint…) | 🧪 New; Debian and Flathub apps confirmed in a Kali container; Ubuntu not yet run; Arch and phone adb not yet |
 | Flathub apps (install from the Store, launch, GPU) | ✅ Works in PRoot and chroot; in Droidspaces confirmed in a Kali container |
