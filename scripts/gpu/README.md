@@ -11,8 +11,11 @@ carries; the app unpacks the one matching the phone's GPU into a container's `/o
 Both come with Zink, GLX and EGL (OpenGL on Vulkan) from the Mesa release: Zink reaches the
 Vulkan driver through the loader, so PanVK needn't come from the same tree (and the port carries
 no OpenGL). `patches/` applies to the Mesa release; the PanVK tree gets its WSI patches, where a
-patch in `patches-panvk/` replaces the one of the same name (its rebase onto the port). A patch
-that doesn't apply stops the build.
+patch in `patches-panvk/` replaces the one of the same name (its rebase onto the port), and the
+patches there that have no namesake (`kbase-*`, for the kbase backend) apply to the port alone. A
+patch that doesn't apply stops the build. When one of them changes, bump the `-pN` suffix that
+`build-mesa.sh` writes to `VERSION-panvk` for the port source (the zenith source has its own,
+and `kbase-*` patches don't go into it), or phones keep the driver they already unpacked.
 
 ```sh
 sudo scripts/gpu/build-mesa.sh                       # both, in a debootstrapped trixie root

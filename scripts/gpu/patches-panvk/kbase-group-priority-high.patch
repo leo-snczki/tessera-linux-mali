@@ -1,0 +1,79 @@
+Subject: [PATCH] kbase: create the CSF queue group at HIGH priority
+
+Purpose: a group created at the default (MEDIUM) priority stays in the scheduler's rotation,
+ and kbase's off-slot heap-reclaim shrinker can empty the tiler heap of a group that was taken
+ off its slot. Under a heavy scene the next pass would then find the heap gone and kbase
+ terminate the group (CS_UNRECOVERABLE), after which the vendor kernel can panic while dumping
+ the blocked KCPU queue (seen on a Lenovo TB373FU, Mali-G615, mali_kbase_mt6897_r44). HIGH
+ resists the rotation. This is the idea zenithblue's notes give; it is not yet shown on this
+ driver (ticket #23 checks it with the 30000-fish stress test). Only MEDIUM is rewritten, so
+ any other priority a caller asks for is untouched. If the kernel refuses HIGH the group is
+ created again at the priority asked for, so a phone that caps HIGH keeps its driver.
+Source/Reference: zenithblue-oss/panvk-kbase-android (MIT scaffolding), which creates its
+ groups at kbase priority 0 (HIGH); re-written for this port, no code copied.
+Generated against: PANVK_REV 58f2c55854bd48b18df756edb11f187af9cd2fde (leo-snczki/mali-panvk).
+ If a PANVK_REV bump stops this applying, rebase it; the build stops rather than ship without it.
+Tested: HIGH is accepted on the TB373FU by an unprivileged app (seen in that driver's log).
+Not changed: the per-queue priority passed to CS_QUEUE_REGISTER (its scale within a group is
+ not confirmed), the tiler heap size, the OOM exception flag (ticket #22).
+
+diff -ruN a/src/panfrost/lib/kmod/kbase_kmod.c b/src/panfrost/lib/kmod/kbase_kmod.c
+--- a/src/panfrost/lib/kmod/kbase_kmod.c	2026-11-04 12:19:02.000000000 +0000
++++ b/src/panfrost/lib/kmod/kbase_kmod.c	2026-11-09 15:53:59.010339191 +0000
+@@ -2545,21 +2545,41 @@
+    for (unsigned q = 0; q < nr_queues; q++)
+       g->seqno[q * 8] = 0;
+ 
+-   union kbase_ioctl_cs_queue_group_create gc = {
+-      .in = {
+-         .tiler_mask = 1,
+-         .fragment_mask = fragment_mask,
+-         .compute_mask = compute_mask,
+-         .cs_min = nr_queues,
+-         .priority = priority,
+-         .tiler_max = 1,
+-         .fragment_max = max_fragment,
+-         .compute_max = max_compute,
+-      },
+-   };
+-   if (pan_kmod_ioctl(dev->fd, KBASE_IOCTL_CS_QUEUE_GROUP_CREATE, &gc)) {
+-      mesa_loge("kbase: CS_QUEUE_GROUP_CREATE failed (err=%d)", errno);
+-      goto err_free_seq;
++   /* Tessera: a group asked for at the default (MEDIUM) priority is created HIGH first. The idea,
++    * from zenithblue's panvk-kbase-android notes, is that a group that stays in the scheduler's
++    * rotation is taken off its firmware slot between passes and kbase's off-slot heap-reclaim
++    * shrinker can then empty its tiler heap, so that under a heavy scene the next pass finds the
++    * heap gone and the group is terminated; HIGH resists that rotation. Not yet shown on this
++    * driver (it is checked with the stress test). A kbase that refuses HIGH (it can cap it) must
++    * not cost the driver its device, so the group is then created at the priority asked for. */
++   const uint8_t requested = priority;
++   if (priority == PAN_KMOD_KBASE_CSF_PRIORITY_MEDIUM)
++      priority = PAN_KMOD_KBASE_CSF_PRIORITY_HIGH;
++
++   union kbase_ioctl_cs_queue_group_create gc;
++   for (;;) {
++      /* Built afresh each time: a failed ioctl may have written into the union. */
++      gc = (union kbase_ioctl_cs_queue_group_create){
++         .in = {
++            .tiler_mask = 1,
++            .fragment_mask = fragment_mask,
++            .compute_mask = compute_mask,
++            .cs_min = nr_queues,
++            .priority = priority,
++            .tiler_max = 1,
++            .fragment_max = max_fragment,
++            .compute_max = max_compute,
++         },
++      };
++      if (!pan_kmod_ioctl(dev->fd, KBASE_IOCTL_CS_QUEUE_GROUP_CREATE, &gc))
++         break;
++      if (priority == requested) {
++         mesa_loge("kbase: CS_QUEUE_GROUP_CREATE failed (err=%d)", errno);
++         goto err_free_seq;
++      }
++      mesa_logw("kbase: queue group at priority %u refused (err=%d), using %u", priority,
++                errno, requested);
++      priority = requested;
+    }
+    g->handle = gc.out.group_handle;
+ 
