@@ -31,6 +31,33 @@ the headers they include from the release beside it. We build from our own mirro
 `leo-snczki/mali-panvk`, pinned to one full commit, so a rewritten or deleted upstream never
 changes or breaks a build.
 
+## Mali: zenithblue's patch series (candidate)
+
+[zenithblue-oss/panvk-kbase-android](https://github.com/zenithblue-oss/panvk-kbase-android) is
+not a Mesa tree but a series of patches on the Mesa commit its `sources.lock` pins
+(26.3.0-devel), with a profile for the Mali-G615 (`g615-v11-csf`) tested on a Poco X6 Pro.
+`PANVK_SOURCE=zenith` builds PanVK from it instead of from the port (the default, unchanged):
+
+```sh
+docker run --rm -v "$PWD:/src" -w /src debian:trixie env TRIXIE=/ MESA_GPU=mali PANVK_SOURCE=zenith scripts/gpu/build-mesa.sh
+```
+
+Only `patches/`, `profiles/` and `sources.lock` are fetched, at `ZENITH_REV` (a full commit id):
+the rest of that repo (its Windows launcher, DXVK, vkd3d, test apps) is gigabytes we don't use.
+The series is applied as their `apply-patches.sh` does for that profile, with `git apply`, onto
+the Mesa archive of the pinned commit, and any patch that doesn't apply stops the build. Our own
+WSI patches (`patches/wsi-*`, `patches-panvk/`) are not applied to it: they were written for the
+port's tree and for another Mesa, and do not apply to this one. `VERSION-panvk` reads
+`panvk-zenith-<rev>-mesa<release>-p1`, so a phone never takes one source's driver for the other's.
+Zink, GLX and EGL still come from the Mesa release, as for every other build.
+
+Licences of what it pulls in (from their `NOTICE.md`): their scripts, profiles and tests are MIT;
+the patches are modifications of Mesa and keep Mesa's licence (mostly MIT); the five Arm kbase
+UAPI headers they vendor are GPL-2.0 WITH Linux-syscall-note, the kernel's exception for
+userspace that includes them, and their kbase kmod backend (`kbase_kmod.c`) is MIT. Their
+repository carries no top-level LICENSE file, and one reference repo they cite
+(`m8l8th814n-eng/mesa-gs101`) has no licence; they say they copied no code from it.
+
 ## Updating PanVK
 
 Claude does this when asked ("update PanVK"); it needs the Mali test tablet plugged in over USB

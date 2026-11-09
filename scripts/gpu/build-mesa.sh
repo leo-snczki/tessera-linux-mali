@@ -5,7 +5,9 @@
 # Builds the GPU drivers the containers use, for Debian trixie arm64, one per GPU family:
 #   adreno: Mesa's Turnip (Vulkan) for Android's KGSL GPU interface;
 #   mali:   Mesa's PanVK (Vulkan) for Android's Mali kbase interface, from the port that adds it
-#           ($PANVK_REPO, pinned to $PANVK_REV; see scripts/gpu/README.md);
+#           ($PANVK_REPO, pinned to $PANVK_REV; see scripts/gpu/README.md), or with
+#           PANVK_SOURCE=zenith from zenithblue's patch series for the Mali-G615 ($ZENITH_REPO,
+#           pinned to $ZENITH_REV) on the Mesa commit that series pins;
 # each with Zink (OpenGL on Vulkan) from the Mesa release. Debian's own Mesa only knows the
 # desktop DRM interfaces, which Android doesn't give apps.
 #
@@ -21,13 +23,21 @@
 #   TESSERA_ON_HOST=1 scripts/gpu/build-mesa.sh
 # Or in a trixie container, without root on the host (rootless docker is enough):
 #   docker run --rm -v "$PWD:/src" -w /src debian:trixie env TRIXIE=/ scripts/gpu/build-mesa.sh
-# Env: MESA_GPU (adreno, mali or all, the default), MESA_VERSION and PANVK_REV (defaults
-# below), TRIXIE (the build root, default /opt/trixie).
+# Env: MESA_GPU (adreno, mali or all, the default), MESA_VERSION, PANVK_SOURCE (port, the default,
+# or zenith), PANVK_REV, ZENITH_REV, ZENITH_CSF_MAX and ZENITH_WIP_MAX (defaults below), TRIXIE
+# (the build root, default /opt/trixie).
 set -euo pipefail
 
 export MESA_VERSION=${MESA_VERSION:-26.2.4}
 export PANVK_REPO=${PANVK_REPO:-leo-snczki/mali-panvk}
 export PANVK_REV=${PANVK_REV:-58f2c55854bd48b18df756edb11f187af9cd2fde}
+export PANVK_SOURCE=${PANVK_SOURCE:-port}
+export ZENITH_REPO=${ZENITH_REPO:-zenithblue-oss/panvk-kbase-android}
+export ZENITH_REV=${ZENITH_REV:-cf70e02b918e1864cbcd746a7fefa57b96c673ce}
+# How much of their series goes in, as their own release builds take it (prepare-rc5-tree.sh at
+# that commit): the csf-v11 patches up to this number, then their jm-v7-wip patches 0006 up to this.
+export ZENITH_CSF_MAX=${ZENITH_CSF_MAX:-233}
+export ZENITH_WIP_MAX=${ZENITH_WIP_MAX:-0175}
 export PREFIX=/opt/tessera-gpu
 MESA_GPU=${MESA_GPU:-all}
 TRIXIE=${TRIXIE:-/opt/trixie}
@@ -36,6 +46,9 @@ OUT="$HERE/../../build/gpu/assets/gpu"
 export ON_HOST=${TESSERA_ON_HOST:-}
 # A full commit id: it names the version phones compare, so it must never mean two trees.
 [[ $PANVK_REV =~ ^[0-9a-f]{40}$ ]] || { echo "PANVK_REV must be a full commit id" >&2; exit 1; }
+[[ $ZENITH_REV =~ ^[0-9a-f]{40}$ ]] || { echo "ZENITH_REV must be a full commit id" >&2; exit 1; }
+[[ $ZENITH_CSF_MAX =~ ^[0-9]+$ && $ZENITH_WIP_MAX =~ ^[0-9]{4}$ ]] || { echo "ZENITH_CSF_MAX is a number, ZENITH_WIP_MAX four digits" >&2; exit 1; }
+case $PANVK_SOURCE in port|zenith) ;; *) echo "PANVK_SOURCE must be port or zenith" >&2; exit 1 ;; esac
 case $MESA_GPU in
   all) FAMILIES="adreno mali" ;;
   adreno|mali) FAMILIES=$MESA_GPU ;;
@@ -85,8 +98,13 @@ for family in $FAMILIES; do
     echo "$MESA_VERSION-t5" > "$OUT/VERSION"
   else
     tar --format=ustar -C "$stage" -czf "$OUT/mesa-panvk.tgz" "${PREFIX#/}"
-    # Both trees: PanVK's revision and the release its OpenGL and helpers come from.
-    echo "panvk-${PANVK_REV:0:12}-mesa$MESA_VERSION-p1" > "$OUT/VERSION-panvk"
+    # Both trees: PanVK's revision and the release its OpenGL comes from (and, for the port, its
+    # helpers). The series' name marks the other source, so the two never pass for each other.
+    if [ "$PANVK_SOURCE" = zenith ]; then
+      echo "panvk-zenith-${ZENITH_REV:0:12}-w$ZENITH_WIP_MAX-mesa$MESA_VERSION-p1" > "$OUT/VERSION-panvk"
+    else
+      echo "panvk-${PANVK_REV:0:12}-mesa$MESA_VERSION-p1" > "$OUT/VERSION-panvk"
+    fi
   fi
 done
 ls -l "$OUT"
