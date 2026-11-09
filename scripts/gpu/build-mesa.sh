@@ -103,7 +103,7 @@ for family in $FAMILIES; do
     if [ "$PANVK_SOURCE" = zenith ]; then
       echo "panvk-zenith-${ZENITH_REV:0:12}-w$ZENITH_WIP_MAX-mesa$MESA_VERSION-p1" > "$OUT/VERSION-panvk"
     else
-      echo "panvk-${PANVK_REV:0:12}-mesa$MESA_VERSION-p3" > "$OUT/VERSION-panvk"
+      echo "panvk-${PANVK_REV:0:12}-mesa$MESA_VERSION-p5" > "$OUT/VERSION-panvk"
     fi
   fi
 done

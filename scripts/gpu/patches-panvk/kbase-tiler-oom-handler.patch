@@ -1,0 +1,116 @@
+Subject: [PATCH] kbase: ask for the tiler OOM exception when the queue group has its handler
+
+Purpose: with no BASE_CSF_TILER_OOM_EXCEPTION_FLAG on the queue group, kbase terminates the group
+ when the tiler heap reaches its last chunk (max_chunks). With the flag it answers the event with
+ a NULL chunk instead, and the firmware runs the TILER_OOM handler on the CS that registered it:
+ incremental rendering, the same path panthor takes. The handler programs already exist (the
+ device builds them) and every render pass already points the fragment CS at one with
+ cs_set_exception_handler; only the flag was never requested. All subqueues of a PanVK queue
+ already share one kbase group, which the firmware needs: the handler only reaches CSs of the
+ group that hit the OOM.
+ The flag and the handler are one decision: group create takes tiler_oom_handler, and the caller
+ passes whether the handler programs exist. The log says when the exception was requested.
+ This backend only speaks the 1.21 handshake, whose group-create layout always has csi_handlers.
+ If a kernel refuses the flag, the group is created again without it (then, as before, at the
+ priority asked for), so a phone that does not take it keeps its driver.
+Source/Reference: zenithblue-oss/panvk-kbase-android (MIT scaffolding), jm-v7-wip 0161 and its
+ notes; re-written for this port (which keeps panthor's heap operations), no code copied.
+Generated against: PANVK_REV 58f2c55854bd48b18df756edb11f187af9cd2fde with kbase-group-priority-high
+ applied first (patches-panvk files apply in name order).
+Not shown yet: that it stops the heavy-load restart (ticket #23). Not done here: zenithblue's 098
+ (heap operations kbase accepts), 043/102 (heap renewal) and 097: ticket #24, only if #23 still
+ restarts.
+
+diff -ruN a/src/panfrost/lib/kmod/kbase_kmod.c b/src/panfrost/lib/kmod/kbase_kmod.c
+--- a/src/panfrost/lib/kmod/kbase_kmod.c	2026-11-09 15:53:59.010339191 +0000
++++ b/src/panfrost/lib/kmod/kbase_kmod.c	2026-11-09 22:09:35.960366981 +0000
+@@ -2071,6 +2071,11 @@
+    uint32_t features, padding;
+ };
+ 
++/* csi_handlers: the group has a tiler out-of-memory handler. At the heap's last chunk kbase then
++ * answers with a NULL chunk and the firmware runs the handler on the CS that registered it
++ * (incremental rendering), instead of kbase terminating the group. */
++#define BASE_CSF_TILER_OOM_EXCEPTION_FLAG (1u << 0)
++
+ union kbase_ioctl_cs_queue_group_create {
+    struct {
+       uint64_t tiler_mask;
+@@ -2523,7 +2528,8 @@
+ struct pan_kmod_kbase_csf_group *
+ pan_kmod_kbase_csf_group_create(struct pan_kmod_dev *dev, unsigned nr_queues,
+                                 uint64_t compute_mask, uint64_t fragment_mask,
+-                                uint8_t max_compute, uint8_t max_fragment, uint8_t priority)
++                                uint8_t max_compute, uint8_t max_fragment, uint8_t priority,
++                                bool tiler_oom_handler)
+ {
+    struct kbase_kmod_dev *kdev = container_of(dev, struct kbase_kmod_dev, base);
+    struct kbase_csf_dev *c = kdev->csfq;
+@@ -2556,6 +2562,7 @@
+    if (priority == PAN_KMOD_KBASE_CSF_PRIORITY_MEDIUM)
+       priority = PAN_KMOD_KBASE_CSF_PRIORITY_HIGH;
+ 
++   bool oom = tiler_oom_handler;
+    union kbase_ioctl_cs_queue_group_create gc;
+    for (;;) {
+       /* Built afresh each time: a failed ioctl may have written into the union. */
+@@ -2569,10 +2576,22 @@
+             .tiler_max = 1,
+             .fragment_max = max_fragment,
+             .compute_max = max_compute,
++            /* Never without the handler: the flag makes kbase hand the out-of-memory event to
++             * the firmware, which needs the handler programs to be there. This layout (1.21,
++             * the only one this backend speaks) always has the field. */
++            .csi_handlers = oom ? BASE_CSF_TILER_OOM_EXCEPTION_FLAG : 0,
+          },
+       };
+       if (!pan_kmod_ioctl(dev->fd, KBASE_IOCTL_CS_QUEUE_GROUP_CREATE, &gc))
+          break;
++      /* What the kernel may refuse goes one thing at a time, the newer request first: a kbase
++       * that doesn't take the OOM flag must not cost the driver its device either. */
++      if (oom) {
++         mesa_logw("kbase: queue group with the tiler OOM exception refused (err=%d), asking "
++                   "without it", errno);
++         oom = false;
++         continue;
++      }
+       if (priority == requested) {
+          mesa_loge("kbase: CS_QUEUE_GROUP_CREATE failed (err=%d)", errno);
+          goto err_free_seq;
+@@ -2582,6 +2601,9 @@
+       priority = requested;
+    }
+    g->handle = gc.out.group_handle;
++   if (oom)
++      mesa_logi("kbase: queue group %u created with the tiler OOM exception requested",
++                (unsigned)g->handle);
+ 
+    for (unsigned q = 0; q < nr_queues; q++) {
+       struct kbase_csf_ring *r = &g->ring[q];
+diff -ruN a/src/panfrost/lib/kmod/kbase_kmod.h b/src/panfrost/lib/kmod/kbase_kmod.h
+--- a/src/panfrost/lib/kmod/kbase_kmod.h	2026-11-04 12:19:02.000000000 +0000
++++ b/src/panfrost/lib/kmod/kbase_kmod.h	2026-11-09 21:33:07.325820738 +0000
+@@ -158,7 +158,8 @@
+ struct pan_kmod_kbase_csf_group *
+ pan_kmod_kbase_csf_group_create(struct pan_kmod_dev *dev, unsigned nr_queues,
+                                 uint64_t compute_mask, uint64_t fragment_mask,
+-                                uint8_t max_compute, uint8_t max_fragment, uint8_t priority);
++                                uint8_t max_compute, uint8_t max_fragment, uint8_t priority,
++                                bool tiler_oom_handler);
+ void pan_kmod_kbase_csf_group_destroy(struct pan_kmod_kbase_csf_group *group);
+ 
+ bool pan_kmod_kbase_csf_tiler_heap_create(struct pan_kmod_dev *dev, uint32_t chunk_size,
+diff -ruN a/src/panfrost/vulkan/csf/panvk_vX_gpu_queue.c b/src/panfrost/vulkan/csf/panvk_vX_gpu_queue.c
+--- a/src/panfrost/vulkan/csf/panvk_vX_gpu_queue.c	2026-11-04 12:19:02.000000000 +0000
++++ b/src/panfrost/vulkan/csf/panvk_vX_gpu_queue.c	2026-11-09 21:33:07.332064624 +0000
+@@ -740,7 +740,9 @@
+       queue->kbase_group = pan_kmod_kbase_csf_group_create(
+          dev->kmod.dev, PANVK_SUBQUEUE_COUNT, phys_dev->compute_core_mask,
+          phys_dev->fragment_core_mask, max_compute_cores, max_fragment_cores,
+-         kbase_prio[group_priority]);
++         kbase_prio[group_priority],
++         /* The TILER_OOM handler programs every render pass points the fragment CS at. */
++         dev->tiler_oom.handlers_bo != NULL);
+       if (!queue->kbase_group)
+          return panvk_errorf(dev, VK_ERROR_INITIALIZATION_FAILED,
+                              "Failed to create a scheduling group");

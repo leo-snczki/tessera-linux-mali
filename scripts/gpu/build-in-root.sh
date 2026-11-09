@@ -172,9 +172,6 @@ else
   else
     # PanVK from the kbase port, with our WSI fixes: those rebased onto it from patches-panvk, the
     # others from patches.
-    # One tree per Mesa release too, as the helpers below come from it.
-    fetch "panvk-$PANVK_REV-$MESA_VERSION" "https://github.com/$PANVK_REPO/archive/$PANVK_REV.tar.gz" xz
-    cd "$WORK/src/panvk-$PANVK_REV-$MESA_VERSION"
     wsi=()
     for p in "$WORK"/patches/wsi-*.patch; do
       [ -f "$p" ] || continue
@@ -183,6 +180,17 @@ else
     for p in "$WORK"/patches-panvk/*.patch; do
       [ -f "$p" ] && [ ! -f "$WORK/patches/$(basename "$p")" ] && wsi+=("$p")
     done
+    # One tree per Mesa release too, as the helpers below come from it, and per set of patches:
+    # patches that touch the same lines can't be told apart from "already applied" once another
+    # one changed them, so a changed patch gets a fresh tree rather than a half-patched one.
+    # The key covers the names and the order they apply in as well as the contents.
+    PORT_PATCHES=$(for p in "${wsi[@]}"; do basename "$p"; cat "$p"; done | sha256sum | cut -c1-12)
+    fetch "panvk-$PANVK_REV-$MESA_VERSION-$PORT_PATCHES" "https://github.com/$PANVK_REPO/archive/$PANVK_REV.tar.gz" xz
+    # Trees and host tools of earlier sets of patches are hundreds of MB each: keep this one only.
+    for d in "$WORK/src/panvk-$PANVK_REV-$MESA_VERSION"-* "$WORK/host-tools-$PANVK_REV"-*; do
+      case $d in *"-$PORT_PATCHES") ;; *) rm -rf "$d" ;; esac
+    done
+    cd "$WORK/src/panvk-$PANVK_REV-$MESA_VERSION-$PORT_PATCHES"
     apply_patches "${wsi[@]}"
     # The port is cut down to what Android needs; X11 presenting also needs Mesa's X11 and loader
     # helpers, small and stable, taken from the release beside it.
@@ -192,7 +200,7 @@ else
     # And the headers they include, where the port dropped them (never replacing its own).
     cp -rn "$WORK/src/mesa-$MESA_VERSION/include/." include/
     # Keyed on its revision and our patches to it.
-    TOOLS_KEY="$PANVK_REV-$(cat /dev/null "${wsi[@]}" | sha256sum | cut -c1-12)"
+    TOOLS_KEY="$PANVK_REV-$PORT_PATCHES"
   fi
   # PanVK's OpenCL helpers are compiled at build time by Mesa's CL compilers from the same tree,
   # built first for the build machine.
