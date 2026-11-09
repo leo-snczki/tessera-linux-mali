@@ -1,0 +1,128 @@
+Subject: [PATCH] kbase: make a submission's KCPU fence when it is exported, not at submission
+
+Purpose: every CSF submission with a signal semaphore created a KCPU queue command (three CQS
+ waits and a FENCE_SIGNAL) for a sync file that only a later export or hand-off would use. The
+ kernel times such a command out after 3000 ms and dumps the queue ("kcpu queue:0 Command -
+ FENCE_SIGNAL timeout(3000 ms)"); on the Lenovo TB373FU (mali_kbase_mt6897_r44) that dump crashes
+ the vendor kernel (kcpu_queue_timeout_worker, kbasep_csf_sync_kcpu_dump_locked), so a GPU that
+ is slow or hung for 3 s restarts the tablet. The fence is now made when something needs it:
+ ks_export_sync_file, and pan_kmod_kbase_sync_merged_fd for a hand-off submission with nothing
+ to run. Submissions waiting on the GPU (same group) never needed it. A syncobj transfer keeps
+ the group and sequence so the destination can still make its own. Neither kernel call is made
+ under ks_lock. A submission that is never exported leaves no KCPU command to time out.
+ Not shown yet: that this stops the restart (ticket #23). The idea: zenithblue's
+ panvk-kbase-android, which exports through a KCPU queue only on demand (its patch 075) and hung
+ this GPU several times on the same tablet without a restart; no code copied.
+Known limits: a hand-off submission (waits and signals, nothing to run) still makes a fence for
+ the semaphores it merges, so those can still be timed out by the kernel; they are short-lived
+ in the usual flows. The group pointer kept for a later export is not cleared when its queue is
+ destroyed: exporting after vkDestroyDevice is invalid use of Vulkan and is not guarded. If the
+ fence cannot be made (the kmod logs why) the export and the merge fall back to waiting for the
+ GPU, as for a submission that never had one.
+Generated against: PANVK_REV 58f2c55854bd48b18df756edb11f187af9cd2fde (leo-snczki/mali-panvk)
+ with kbase-group-priority-high and kbase-tiler-oom-handler applied first (name order).
+
+diff -ruN a/src/panfrost/lib/kmod/kbase_kmod.c b/src/panfrost/lib/kmod/kbase_kmod.c
+--- a/src/panfrost/lib/kmod/kbase_kmod.c	2026-11-09 22:09:35.960366981 +0000
++++ b/src/panfrost/lib/kmod/kbase_kmod.c	2026-11-09 22:54:53.499568523 +0000
+@@ -1118,6 +1118,42 @@
+    return ok;
+ }
+ 
++/* The sync file of CSF submissions, made when something needs it and not when they are submitted.
++ * A KCPU fence is a command the kernel times out after 3 s, and the vendor kernel on the Lenovo
++ * TB373FU crashes dumping the queue of one that did: a submission nobody exports, or merges for
++ * a hand-off, must leave none behind, so that a slow or hung GPU is not turned into a restart.
++ * Takes ks_lock itself and holds it for neither kernel call. */
++static void
++ks_ensure_fences(const uint32_t *handles, unsigned count)
++{
++   for (unsigned i = 0; i < count; i++) {
++      const void *group = NULL;
++      uint64_t seq = 0;
++      pthread_mutex_lock(&ks_lock);
++      const struct ks_obj *o = ks_get(handles[i]);
++      if (o && o->state == KS_SUBMITTED && !o->external && o->fd < 0 && o->csf_group) {
++         group = o->csf_group;
++         seq = o->csf_seq;
++      }
++      pthread_mutex_unlock(&ks_lock);
++      if (!group)
++         continue;
++
++      const int fence = pan_kmod_kbase_csf_fence_fd((struct pan_kmod_kbase_csf_group *)group, seq);
++      if (fence < 0)
++         continue;
++
++      /* Look again: the object may have been signaled, reset or resubmitted meanwhile. */
++      pthread_mutex_lock(&ks_lock);
++      struct ks_obj *n = ks_get(handles[i]);
++      if (n && n->state == KS_SUBMITTED && n->fd < 0 && n->csf_group == group && n->csf_seq == seq)
++         n->fd = fence;
++      else
++         close(fence);
++      pthread_mutex_unlock(&ks_lock);
++   }
++}
++
+ struct ks_sync_merge_data {
+    char name[32];
+    int32_t fd2;
+@@ -1131,6 +1167,7 @@
+ pan_kmod_kbase_sync_merged_fd(const uint32_t *handles, unsigned count)
+ {
+    int fd = -1;
++   ks_ensure_fences(handles, count);
+    pthread_mutex_lock(&ks_lock);
+    for (unsigned i = 0; i < count; i++) {
+       struct ks_obj *o = ks_get(handles[i]);
+@@ -1253,6 +1290,10 @@
+    if (d && s && d != s) {
+       ks_set_state(d, s->state, s->fd >= 0 ? dup(s->fd) : -1);
+       d->external = s->external;
++      if (s->state == KS_SUBMITTED && !s->external) {
++         d->csf_group = s->csf_group;
++         d->csf_seq = s->csf_seq;
++      }
+       pthread_cond_broadcast(&ks_cond);
+    }
+    pthread_mutex_unlock(&ks_lock);
+@@ -1266,6 +1307,11 @@
+    pthread_mutex_lock(&ks_lock);
+    /* Wait for the signal operation to be submitted (normally it is already). */
+    int ret = ks_wait_locked(&handle, 1, deadline, DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE, NULL);
++   pthread_mutex_unlock(&ks_lock);
++   /* Its sync file is made now, not at submission (see ks_ensure_fences). */
++   if (!ret)
++      ks_ensure_fences(&handle, 1);
++   pthread_mutex_lock(&ks_lock);
+    struct ks_obj *o = ret ? NULL : ks_get(handle);
+    if (o && o->state == KS_SUBMITTED) {
+       if (o->fd >= 0) {
+diff -ruN a/src/panfrost/vulkan/csf/panvk_vX_gpu_queue.c b/src/panfrost/vulkan/csf/panvk_vX_gpu_queue.c
+--- a/src/panfrost/vulkan/csf/panvk_vX_gpu_queue.c	2026-11-09 21:33:07.332064624 +0000
++++ b/src/panfrost/vulkan/csf/panvk_vX_gpu_queue.c	2026-11-09 22:54:53.501728000 +0000
+@@ -1657,19 +1657,15 @@
+       return vk_queue_set_lost(&queue->vk, "kbase: the submission was refused");
+    }
+ 
+-   /* A sync file for what this submission signals, so exporting one (a present, a fence fd)
+-    * hands the wait to whoever consumes it instead of blocking the CPU here. d may already be
+-    * freed by the event thread: the handles come from the submit info. */
++   /* What a later export (a present, a fence fd) or hand-off needs to make a sync file for what
++    * this submission signals: its group and sequence number. The sync file itself is made then,
++    * not here: a KCPU fence nobody asked for is only something for the kernel to time out. d may
++    * already be freed by the event thread: the handles come from the submit info. */
+    if (vk_submit->signal_count) {
+       uint32_t handles[vk_submit->signal_count];
+       for (uint32_t i = 0; i < vk_submit->signal_count; i++)
+          handles[i] = vk_sync_as_drm_syncobj(vk_submit->signals[i].sync)->syncobj;
+       pan_kmod_kbase_sync_attach_csf(handles, vk_submit->signal_count, queue->kbase_group, seq);
+-      const int fd = pan_kmod_kbase_csf_fence_fd(queue->kbase_group, seq);
+-      if (fd >= 0) {
+-         pan_kmod_kbase_sync_attach_fd(handles, vk_submit->signal_count, fd);
+-         close(fd);
+-      }
+    }
+ 
+    if (PANVK_DEBUG(SYNC) || PANVK_DEBUG(TRACE)) {
